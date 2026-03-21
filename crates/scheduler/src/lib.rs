@@ -21,7 +21,11 @@
 
 pub mod coordinator;
 pub mod types;
+pub mod worker;
 
 // Re-exports for ergonomic use.
 pub use coordinator::Scheduler;
 pub use types::{Incarnation, SchedulerTask, TxIndex, TxState, TxStatus};
+pub use worker::{
+    convert_state_diffs, execute_transaction, validate_transaction, ExecutionOutcome,
+};
