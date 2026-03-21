@@ -1418,6 +1418,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "hex",
+ "monad-nine-fork",
  "monad-state",
  "monad-types",
  "revm",
@@ -1433,6 +1434,7 @@ dependencies = [
  "monad-state",
  "monad-types",
  "revm",
+ "revm-handler",
 ]
 
 [[package]]

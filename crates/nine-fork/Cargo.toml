@@ -10,6 +10,7 @@ monad-evm = { path = "../evm" }
 monad-state = { path = "../state" }
 alloy-primitives = { workspace = true }
 revm = { version = "36", default-features = false, features = ["std"] }
+revm-handler = { version = "17", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 hex = "0.4"

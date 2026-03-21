@@ -27,9 +27,10 @@
 //! interpreter → state changes), not just at the instruction/precompile level.
 
 pub mod mip3_memory;
+pub mod mip4_reserve;
 pub mod mip5_clz;
 pub mod modexp_validate;
+pub mod nine_fork_precompiles;
 
-// Placeholder modules for subsequent tasks in S02
-// pub mod mip4_reserve;
+// Placeholder module for subsequent tasks in S02
 // pub mod safety;

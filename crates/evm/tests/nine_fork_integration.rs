@@ -283,3 +283,171 @@ fn nine_fork_mip3_deep_nesting_via_executor() {
         );
     }
 }
+
+// ─── MIP-4: Reserve Balance Precompile Integration Tests ──────────────────
+
+/// Builds a contract that STATICCALLs the MIP-4 precompile at address 0x20
+/// with an ABI-encoded target address, then SSTOREs the result.
+///
+/// The contract:
+/// 1. MSTOREs the ABI-encoded target address at memory offset 0
+/// 2. STATICCALLs 0x20 with 32 bytes of input, receives 32 bytes of output
+/// 3. SSTOREs the STATICCALL success flag at slot 1
+/// 4. MCOPYs the return data from returndata buffer to memory (via RETURNDATACOPY)
+/// 5. MLOADs the 32-byte result from memory offset 64
+/// 6. SSTOREs the result at slot 0
+/// 7. STOPs
+fn build_mip4_caller(target_address: Address) -> Vec<u8> {
+    let mut code = Vec::new();
+
+    // Step 1: MSTORE the ABI-encoded address at memory offset 0
+    // The ABI encoding is: 12 zero bytes + 20 address bytes = 32 bytes
+    // We can PUSH32 the entire 32-byte word
+    let mut abi_encoded = [0u8; 32];
+    abi_encoded[12..32].copy_from_slice(target_address.as_slice());
+
+    code.push(0x7F); // PUSH32
+    code.extend_from_slice(&abi_encoded);
+    code.push(0x60); code.push(0x00); // PUSH1 0 (memory offset)
+    code.push(0x52); // MSTORE
+
+    // Step 2: STATICCALL to 0x20
+    // STATICCALL(gas, addr, argsOffset, argsLength, retOffset, retLength)
+    // Stack order (bottom to top): gas, addr, argsOff, argsLen, retOff, retLen
+    // But EVM pops from top: retLen, retOff, argsLen, argsOff, addr, gas
+    code.push(0x60); code.push(0x20); // PUSH1 32 = retLength (32 bytes)
+    code.push(0x60); code.push(0x40); // PUSH1 64 = retOffset (write at offset 64)
+    code.push(0x60); code.push(0x20); // PUSH1 32 = argsLength (32 bytes)
+    code.push(0x60); code.push(0x00); // PUSH1 0 = argsOffset
+    code.push(0x73);                  // PUSH20 address 0x20
+    code.extend_from_slice(Address::with_last_byte(0x20).as_slice());
+    code.push(0x62); code.push(0x01); code.push(0x86); code.push(0xA0); // PUSH3 100000 = gas
+    code.push(0xFA); // STATICCALL
+
+    // Step 3: SSTORE call success at slot 1
+    code.push(0x60); code.push(0x01); // PUSH1 1 = slot
+    code.push(0x55); // SSTORE
+
+    // Step 4: MLOAD the result from offset 64 (where STATICCALL wrote the return data)
+    code.push(0x60); code.push(0x40); // PUSH1 64
+    code.push(0x51); // MLOAD
+
+    // Step 5: SSTORE result at slot 0
+    code.push(0x60); code.push(0x00); // PUSH1 0 = slot
+    code.push(0x55); // SSTORE
+
+    code.push(0x00); // STOP
+    code
+}
+
+/// MIP-4 Integration: STATICCALL to precompile 0x20 for an address that has NOT dipped.
+/// Should return 0x01 (safe / not dipped).
+#[test]
+fn nine_fork_mip4_reserve_not_dipped() {
+    use monad_nine_fork::mip4_reserve::reset_dipped_tracker;
+    use monad_nine_fork::nine_fork_precompiles::execute_with_nine_fork_precompiles;
+
+    // Reset the dipped tracker for clean test state
+    reset_dipped_tracker();
+
+    let target_addr = Address::with_last_byte(0xAA);
+    let caller_addr = Address::with_last_byte(0x50);
+
+    let state = InMemoryState::new()
+        .with_account(sender(), AccountInfo::new(U256::from(10_000_000_000u64), 0))
+        .with_account(caller_addr, account_with_code(build_mip4_caller(target_addr)));
+
+    let tx = Transaction {
+        sender: sender(),
+        to: Some(caller_addr),
+        value: U256::ZERO,
+        data: Bytes::new(),
+        gas_limit: 1_000_000,
+        nonce: 0,
+        gas_price: U256::ZERO,
+    };
+
+    let (result, state_changes) =
+        execute_with_nine_fork_precompiles(&tx, &state, &BlockEnv::default())
+            .expect("MIP-4 integration test should not error");
+
+    assert!(result.is_success(), "TX should succeed: {:?}", result);
+
+    let (_, storage) = state_changes
+        .get(&caller_addr)
+        .expect("Caller should have state changes");
+
+    // STATICCALL should have succeeded (slot 1 = 1)
+    let call_ok = storage.get(&U256::from(1u64)).expect("Slot 1 should exist");
+    assert_eq!(
+        *call_ok,
+        U256::from(1u64),
+        "STATICCALL to MIP-4 precompile should succeed (got {:#x})",
+        call_ok
+    );
+
+    // Result should be 0x01 (NOT dipped = safe)
+    let reserve_result = storage.get(&U256::ZERO).expect("Slot 0 should exist");
+    assert_eq!(
+        *reserve_result,
+        U256::from(1u64),
+        "Address that has NOT dipped should return 0x01, got {:#x}",
+        reserve_result
+    );
+}
+
+/// MIP-4 Integration: STATICCALL to precompile 0x20 for an address that HAS dipped.
+/// Should return 0x00 (dipped / not safe).
+#[test]
+fn nine_fork_mip4_reserve_dipped() {
+    use monad_nine_fork::mip4_reserve::{mark_address_dipped, reset_dipped_tracker};
+    use monad_nine_fork::nine_fork_precompiles::execute_with_nine_fork_precompiles;
+
+    // Reset tracker and mark the target as dipped
+    reset_dipped_tracker();
+    let target_addr = Address::with_last_byte(0xBB);
+    mark_address_dipped(target_addr);
+
+    let caller_addr = Address::with_last_byte(0x51);
+
+    let state = InMemoryState::new()
+        .with_account(sender(), AccountInfo::new(U256::from(10_000_000_000u64), 0))
+        .with_account(caller_addr, account_with_code(build_mip4_caller(target_addr)));
+
+    let tx = Transaction {
+        sender: sender(),
+        to: Some(caller_addr),
+        value: U256::ZERO,
+        data: Bytes::new(),
+        gas_limit: 1_000_000,
+        nonce: 0,
+        gas_price: U256::ZERO,
+    };
+
+    let (result, state_changes) =
+        execute_with_nine_fork_precompiles(&tx, &state, &BlockEnv::default())
+            .expect("MIP-4 dipped integration test should not error");
+
+    assert!(result.is_success(), "TX should succeed: {:?}", result);
+
+    let (_, storage) = state_changes
+        .get(&caller_addr)
+        .expect("Caller should have state changes");
+
+    // STATICCALL should have succeeded
+    let call_ok = storage.get(&U256::from(1u64)).expect("Slot 1 should exist");
+    assert_eq!(
+        *call_ok,
+        U256::from(1u64),
+        "STATICCALL to MIP-4 precompile should succeed"
+    );
+
+    // Result should be 0x00 (HAS dipped)
+    let reserve_result = storage.get(&U256::ZERO).expect("Slot 0 should exist");
+    assert_eq!(
+        *reserve_result,
+        U256::ZERO,
+        "Address that HAS dipped should return 0x00, got {:#x}",
+        reserve_result
+    );
+}

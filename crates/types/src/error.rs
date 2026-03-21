@@ -27,6 +27,10 @@ pub enum EvmError {
     /// Block environment is invalid.
     #[error("invalid block environment: {0}")]
     InvalidBlockEnv(String),
+
+    /// Reserve balance error (MIP-4).
+    #[error("reserve balance error: {0}")]
+    ReserveBalance(String),
 }
 
 #[cfg(test)]
