@@ -8,3 +8,11 @@ description = "EVM execution engine for monad-core"
 monad-types = { path = "../types" }
 monad-state = { path = "../state" }
 alloy-primitives = { workspace = true }
+revm = { version = "36", default-features = false, features = [
+    "std",
+    "optional_eip3607",
+    "optional_no_base_fee",
+    "optional_fee_charge",
+] }
+
+[dev-dependencies]
