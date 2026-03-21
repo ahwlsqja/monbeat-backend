@@ -26,9 +26,11 @@
 //! assert!(acct.is_some());
 //! ```
 
+pub mod cached_provider;
 pub mod in_memory;
 pub mod provider;
 
 // Re-export the core trait and default implementation at crate root.
+pub use cached_provider::CachedStateProvider;
 pub use in_memory::InMemoryState;
 pub use provider::StateProvider;

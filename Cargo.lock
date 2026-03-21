@@ -1565,6 +1565,7 @@ name = "monad-state"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "dashmap",
  "monad-types",
 ]
 

@@ -7,3 +7,4 @@ description = "State provider trait and in-memory backend for monad-core"
 [dependencies]
 monad-types = { path = "../types" }
 alloy-primitives = { workspace = true }
+dashmap = "6.1"
