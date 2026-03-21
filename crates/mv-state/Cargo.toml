@@ -10,3 +10,4 @@ monad-state = { path = "../state" }
 alloy-primitives = { workspace = true }
 dashmap = "6.1"
 parking_lot = "0.12"
+revm = { version = "36", default-features = false, features = ["std"] }

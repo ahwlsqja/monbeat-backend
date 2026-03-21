@@ -15,10 +15,14 @@
 //! the read returns `MvReadResult::Estimate` — the scheduler interprets this as
 //! "suspend this transaction until the dependency resolves."
 
+pub mod mv_database;
+pub mod read_write_sets;
 pub mod types;
 pub mod versioned_state;
 
 // Re-exports for ergonomic use.
+pub use mv_database::{MvDatabase, MvDatabaseError};
+pub use read_write_sets::{ReadSet, WriteSet};
 pub use types::{
     Incarnation, LocationKey, MvReadResult, ReadOrigin, TxIndex, VersionedValue, WriteValue,
 };

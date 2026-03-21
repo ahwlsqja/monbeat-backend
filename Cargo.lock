@@ -1468,6 +1468,7 @@ dependencies = [
  "monad-state",
  "monad-types",
  "parking_lot",
+ "revm",
 ]
 
 [[package]]
