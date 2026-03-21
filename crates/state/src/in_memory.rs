@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use monad_types::{AccountInfo, EvmError, Address, Bytes, U256, B256};
 
@@ -100,6 +100,25 @@ impl InMemoryState {
     /// Inserts contract bytecode by code hash.
     pub fn insert_code(&mut self, code_hash: B256, bytecode: Bytes) {
         self.code.insert(code_hash, bytecode);
+    }
+
+    // ── Sorted accessors (for deterministic state root computation) ──
+
+    /// Returns a sorted copy of all accounts as a `BTreeMap`.
+    ///
+    /// Used for deterministic state root computation — `HashMap` iteration
+    /// order is non-deterministic, so we convert to `BTreeMap` (sorted by
+    /// `Address`) before hashing.
+    pub fn accounts(&self) -> BTreeMap<Address, AccountInfo> {
+        self.accounts.iter().map(|(k, v)| (*k, v.clone())).collect()
+    }
+
+    /// Returns a sorted copy of all storage entries as a `BTreeMap`.
+    ///
+    /// Keys are `(Address, U256)` pairs (contract address, storage slot),
+    /// sorted lexicographically. Used for deterministic state root computation.
+    pub fn all_storage(&self) -> BTreeMap<(Address, U256), U256> {
+        self.storage.iter().map(|(k, v)| (*k, *v)).collect()
     }
 }
 
@@ -285,5 +304,77 @@ mod tests {
         assert_eq!(state.storage(addr, U256::from(1u64)).unwrap(), U256::from(20u64));
         assert_eq!(state.storage(addr, U256::from(2u64)).unwrap(), U256::from(30u64));
         assert_eq!(state.storage(addr, U256::from(3u64)).unwrap(), U256::ZERO);
+    }
+
+    #[test]
+    fn test_accounts_returns_sorted_btree_map() {
+        // Insert accounts in reverse address order.
+        let addr3 = Address::with_last_byte(0x03);
+        let addr1 = Address::with_last_byte(0x01);
+        let addr2 = Address::with_last_byte(0x02);
+        let state = InMemoryState::new()
+            .with_account(addr3, AccountInfo::new(U256::from(300u64), 3))
+            .with_account(addr1, AccountInfo::new(U256::from(100u64), 1))
+            .with_account(addr2, AccountInfo::new(U256::from(200u64), 2));
+
+        let sorted = state.accounts();
+        assert_eq!(sorted.len(), 3);
+
+        // BTreeMap keys should be in ascending address order.
+        let keys: Vec<Address> = sorted.keys().copied().collect();
+        assert_eq!(keys, vec![addr1, addr2, addr3]);
+        assert_eq!(sorted[&addr1].balance, U256::from(100u64));
+        assert_eq!(sorted[&addr2].balance, U256::from(200u64));
+        assert_eq!(sorted[&addr3].balance, U256::from(300u64));
+    }
+
+    #[test]
+    fn test_accounts_empty_state() {
+        let state = InMemoryState::new();
+        let sorted = state.accounts();
+        assert!(sorted.is_empty());
+    }
+
+    #[test]
+    fn test_all_storage_returns_sorted_btree_map() {
+        let addr2 = Address::with_last_byte(0x02);
+        let addr1 = Address::with_last_byte(0x01);
+        let state = InMemoryState::new()
+            .with_storage(addr2, U256::from(1u64), U256::from(20u64))
+            .with_storage(addr1, U256::from(0u64), U256::from(10u64))
+            .with_storage(addr1, U256::from(1u64), U256::from(15u64));
+
+        let sorted = state.all_storage();
+        assert_eq!(sorted.len(), 3);
+
+        // Keys should be in ascending (address, slot) order.
+        let keys: Vec<(Address, U256)> = sorted.keys().copied().collect();
+        assert_eq!(keys[0], (addr1, U256::from(0u64)));
+        assert_eq!(keys[1], (addr1, U256::from(1u64)));
+        assert_eq!(keys[2], (addr2, U256::from(1u64)));
+    }
+
+    #[test]
+    fn test_all_storage_empty_state() {
+        let state = InMemoryState::new();
+        let sorted = state.all_storage();
+        assert!(sorted.is_empty());
+    }
+
+    #[test]
+    fn test_accounts_is_deterministic() {
+        // Two states built with the same data should produce identical BTreeMaps.
+        let addr1 = Address::with_last_byte(0x01);
+        let addr2 = Address::with_last_byte(0x02);
+
+        let state_a = InMemoryState::new()
+            .with_account(addr1, AccountInfo::new(U256::from(100u64), 0))
+            .with_account(addr2, AccountInfo::new(U256::from(200u64), 1));
+
+        let state_b = InMemoryState::new()
+            .with_account(addr2, AccountInfo::new(U256::from(200u64), 1))
+            .with_account(addr1, AccountInfo::new(U256::from(100u64), 0));
+
+        assert_eq!(state_a.accounts(), state_b.accounts());
     }
 }

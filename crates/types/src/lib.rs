@@ -29,7 +29,7 @@ pub mod transaction;
 pub use account::{AccountInfo, KECCAK_EMPTY};
 pub use block::BlockEnv;
 pub use error::EvmError;
-pub use result::{ExecutionResult, Log, Receipt};
+pub use result::{ExecutionResult, Log, Receipt, BlockResult};
 pub use transaction::Transaction;
 
 // Re-export alloy-primitives types used throughout the workspace.

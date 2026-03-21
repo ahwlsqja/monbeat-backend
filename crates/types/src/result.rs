@@ -69,6 +69,23 @@ pub struct Receipt {
     pub contract_address: Option<Address>,
 }
 
+/// Result of executing a full block of transactions.
+///
+/// Contains the deterministic state root (keccak256 over BTreeMap-sorted state),
+/// per-transaction receipts, total gas consumed, and all logs emitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockResult {
+    /// Keccak-256 hash of the post-execution state, computed over BTreeMap-sorted
+    /// (address, field, value) tuples for determinism.
+    pub state_root: B256,
+    /// One receipt per transaction, in block order.
+    pub receipts: Vec<Receipt>,
+    /// Total gas consumed by all transactions in the block.
+    pub gas_used: u64,
+    /// All logs emitted by all transactions in the block, in block order.
+    pub logs: Vec<Log>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +154,50 @@ mod tests {
             contract_address: Some(Address::with_last_byte(0xCC)),
         };
         assert!(receipt.contract_address.is_some());
+    }
+
+    #[test]
+    fn test_block_result_creation() {
+        let receipt = Receipt {
+            success: true,
+            cumulative_gas_used: 21_000,
+            logs: vec![],
+            contract_address: None,
+        };
+        let block_result = BlockResult {
+            state_root: B256::with_last_byte(0xAA),
+            receipts: vec![receipt.clone()],
+            gas_used: 21_000,
+            logs: vec![],
+        };
+        assert_eq!(block_result.state_root, B256::with_last_byte(0xAA));
+        assert_eq!(block_result.receipts.len(), 1);
+        assert_eq!(block_result.gas_used, 21_000);
+        assert!(block_result.logs.is_empty());
+    }
+
+    #[test]
+    fn test_block_result_empty_block() {
+        let block_result = BlockResult {
+            state_root: B256::ZERO,
+            receipts: vec![],
+            gas_used: 0,
+            logs: vec![],
+        };
+        assert_eq!(block_result.state_root, B256::ZERO);
+        assert!(block_result.receipts.is_empty());
+        assert_eq!(block_result.gas_used, 0);
+    }
+
+    #[test]
+    fn test_block_result_equality() {
+        let br1 = BlockResult {
+            state_root: B256::with_last_byte(0x01),
+            receipts: vec![],
+            gas_used: 42_000,
+            logs: vec![],
+        };
+        let br2 = br1.clone();
+        assert_eq!(br1, br2);
     }
 }
