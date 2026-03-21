@@ -26,10 +26,10 @@
 //! proving that the features work through the complete EVM pipeline (bytecode →
 //! interpreter → state changes), not just at the instruction/precompile level.
 
+pub mod mip3_memory;
 pub mod mip5_clz;
 pub mod modexp_validate;
 
 // Placeholder modules for subsequent tasks in S02
-// pub mod mip3_memory;
 // pub mod mip4_reserve;
 // pub mod safety;
