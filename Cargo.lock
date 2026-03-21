@@ -1505,6 +1505,7 @@ dependencies = [
  "hex",
  "monad-mv-state",
  "monad-nine-fork",
+ "monad-scheduler",
  "monad-state",
  "monad-types",
  "revm",

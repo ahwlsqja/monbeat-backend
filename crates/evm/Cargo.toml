@@ -19,3 +19,4 @@ revm = { version = "36", default-features = false, features = [
 hex = "0.4"
 monad-nine-fork = { path = "../nine-fork" }
 monad-mv-state = { path = "../mv-state" }
+monad-scheduler = { path = "../scheduler" }

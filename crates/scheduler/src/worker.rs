@@ -181,6 +181,21 @@ pub fn execute_transaction(
                 let blocking_tx = extract_estimate_tx_index(&err_debug).unwrap_or(0);
                 return ExecutionOutcome::EstimateHit { blocking_tx };
             }
+            // State-dependent execution errors (nonce mismatch, insufficient
+            // balance, etc.) mean this transaction read stale state from a
+            // prior tx that hasn't completed yet. Treat as an ESTIMATE hit —
+            // re-queue this tx so it retries after the dependency resolves.
+            //
+            // Without this, the read_set captures only what was actually read
+            // (e.g., tx0's writes), but not the missing dependency (tx1's writes).
+            // Validation could pass because the read_set matches, leaving the
+            // error result as final even after the correct state becomes available.
+            if tx_index > 0 {
+                return ExecutionOutcome::EstimateHit {
+                    blocking_tx: tx_index - 1,
+                };
+            }
+            // tx_index == 0 can't depend on prior txs; genuine error.
             return ExecutionOutcome::ExecutionError(EvmError::Internal(format!(
                 "revm execution error: {:?}",
                 e
