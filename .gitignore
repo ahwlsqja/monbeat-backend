@@ -1,0 +1,13 @@
+# GSD runtime files
+.gsd/gsd.db-shm
+.gsd/gsd.db-wal
+.gsd/runtime/
+.gsd/STATE.md
+.gsd/milestones/*/M*-META.json
+.bg-shell/
+
+# Rust build artifacts
+target/
+
+# OS files
+.DS_Store
