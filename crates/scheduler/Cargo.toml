@@ -1,0 +1,20 @@
+[package]
+name = "monad-scheduler"
+version = "0.1.0"
+edition = "2021"
+description = "Block-STM parallel scheduler with OCC conflict detection"
+
+[dependencies]
+monad-types = { path = "../types" }
+monad-state = { path = "../state" }
+monad-mv-state = { path = "../mv-state" }
+monad-evm = { path = "../evm" }
+alloy-primitives = { workspace = true }
+revm = { version = "36", default-features = false, features = [
+    "std",
+    "optional_eip3607",
+    "optional_no_base_fee",
+    "optional_fee_charge",
+] }
+crossbeam = { workspace = true }
+parking_lot = "0.12"

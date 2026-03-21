@@ -7,12 +7,14 @@ members = [
     "crates/precompiles",
     "crates/nine-fork",
     "crates/mv-state",
+    "crates/scheduler",
 ]
 
 [workspace.dependencies]
 alloy-primitives = { version = "1.5", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2"
+crossbeam = "0.8"
 
 [profile.dev]
 opt-level = 1          # slight optimization for faster test execution
