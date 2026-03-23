@@ -57,6 +57,16 @@
 **Context:** conflict_details의 tx_a/tx_b는 정수 인덱스인데, suggestion 생성에는 함수명이 필요. tx index → function name 매핑은 트랜잭션 블록 구성 시점에 생성해야 정확함 (deploy tx=0="constructor", 이후 tx=stateChangingFns 순서).
 **Rule:** `constructTransactionBlock()`에서 txFunctionMap을 함께 빌드하여 반환. `{ transactions, blockEnv, txFunctionMap }` triple로 반환하는 패턴 사용. function encode 실패로 skip된 함수도 있으므로 인덱스를 직접 추적해야 함.
 
+### NestJS E2E mock conflict_details — 반드시 non-coinbase 주소 사용
+**Discovered:** M006-S04 T01 E2E 테스트 작성 시
+**Context:** `buildConflictAnalysis`는 coinbase 주소 관련 충돌을 자동 필터링한다 (EVM 내재적 동작이므로 actionable 아님). E2E 테스트에서 EngineService mock의 `conflict_details`에 coinbase 주소(예: `0x0000...0000`)를 사용하면 모든 충돌이 필터링되어 `conflictAnalysis.conflicts`가 빈 배열이 된다.
+**Rule:** E2E 테스트 mock 데이터의 conflict address는 반드시 non-coinbase 주소(예: `0x1234...abcd`)를 사용해야 한다. `block_env.coinbase` 값과 다른 주소를 선택.
+
+### NestJS E2E — describe 블록별 TestingModule 격리 패턴
+**Discovered:** M006-S04 T01 EngineService mock 격리 설계 시
+**Context:** 기존 E2E 테스트와 새로운 Conflict Analysis E2E 테스트가 서로 다른 EngineService 동작을 필요로 한다 (기존: real service, 신규: mock with conflict_details). 단일 TestingModule에서 override하면 모든 테스트에 영향.
+**Rule:** Provider override가 다른 E2E describe 블록은 각자 독립적인 TestingModule(`createTestingModule → compile → createNestApplication`)을 부트한다. `beforeAll`에서 생성, `afterAll`에서 close. 격리 검증을 위해 `jest.fn()` 타입 체크 테스트 추가 권장.
+
 ### VibeScoreDashboard 테스트 — within() 스코핑 필수
 **Discovered:** M006-S03 T02 heatmap + suggestion card 테스트 작성 시
 **Context:** VibeScoreDashboard에 heatmap과 suggestion card가 추가되면서, 함수명(transfer, approve 등)과 변수명(balances, counter 등)이 heatmap 테이블 행/열과 suggestion card 양쪽에 동시 존재한다. `screen.getByText('transfer')`로 찾으면 multiple-elements 에러 발생.

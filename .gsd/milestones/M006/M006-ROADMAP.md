@@ -59,7 +59,7 @@ This milestone is complete only when all are true:
 - [x] **S03: Vibe-Loom — 매트릭스 히트맵 + Suggestion 카드 UI** `risk:medium` `depends:[S02]`
   > After this: VibeScoreDashboard에 함수×변수명 충돌 매트릭스 히트맵이 색상으로 충돌 강도를 표현하고, 각 충돌에 대한 구조화된 suggestion 카드(변수명, 관련 함수, 수정 방법)가 표시된다.
 
-- [ ] **S04: E2E 검증 — 전체 파이프라인 통합 테스트** `risk:low` `depends:[S03]`
+- [x] **S04: E2E 검증 — 전체 파이프라인 통합 테스트** `risk:low` `depends:[S03]`
   > After this: ParallelConflict 컨트랙트로 Rust CLI→NestJS→Vibe-Loom 전체 파이프라인이 E2E 검증되고, 충돌 없는 컨트랙트의 하위 호환도 확인된다.
 
 ## Boundary Map

@@ -44,6 +44,6 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [x] M003: Full-Stack E2E QA — 시제품 수준 통합 검증 (completed, 22 Playwright E2E tests, 10 screenshot evidence files)
 - [x] M004: Vibe-Loom UI Redesign — Refined Technical Aesthetic (impeccable 디자인 원칙 기반 전면 재설계)
 - [x] M005: Monad Ecosystem UX Research — 모나드 생태계 리서치 → 3-phase 로드맵(M006/M007/M008), R017-R025 요구사항 + D021-D023 전략 결정 등록 완료
-- [ ] M006: Parallel Execution Optimization Suggestions — Vibe Score를 "점수"에서 "처방전"으로. R/W set 충돌 데이터 + storage layout 디코딩 + 매트릭스 히트맵. **S01 완료** (CLI conflict_details JSON 출력, 25+7 tests pass), **S02 완료** (NestJS storage layout 디코딩 + actionable suggestion 생성, 43 tests pass), **S03 완료** (Vibe-Loom 매트릭스 히트맵 + suggestion 카드 UI, 16+11 tests pass)
+- [ ] M006: Parallel Execution Optimization Suggestions — Vibe Score를 "점수"에서 "처방전"으로. R/W set 충돌 데이터 + storage layout 디코딩 + 매트릭스 히트맵. **S01 완료** (CLI conflict_details JSON 출력, 25+7 tests pass), **S02 완료** (NestJS storage layout 디코딩 + actionable suggestion 생성, 43 tests pass), **S03 완료** (Vibe-Loom 매트릭스 히트맵 + suggestion 카드 UI, 16+11 tests pass), **S04 완료** (E2E 검증 — Backend 15 E2E pass, Frontend 63 unit pass, Playwright 23 E2E pass)
 - [ ] M007: Onboarding & Template Gallery (Phase 2) — 컨트랙트 템플릿 갤러리, 온보딩 투어, 원클릭 검증, 가스 최적화
 - [ ] M008: Monitoring, Workspace & Community (Phase 3) — 배포 후 모니터링, 워크스페이스, 커뮤니티
