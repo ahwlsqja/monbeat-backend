@@ -56,7 +56,7 @@ This milestone is complete only when all are true:
 - [x] **S02: NestJS — Storage Layout 디코딩 + Actionable Suggestion 생성** `risk:high` `depends:[S01]`
   > After this: `/api/vibe-score` 호출 시 충돌된 slot이 Solidity 변수명/mapping명으로 디코딩되고, "mapping `balances`에서 transfer()와 approve()가 충돌 — 별도 mapping 분리 권장" 같은 구체적 수정 제안이 응답에 포함된다.
 
-- [ ] **S03: Vibe-Loom — 매트릭스 히트맵 + Suggestion 카드 UI** `risk:medium` `depends:[S02]`
+- [x] **S03: Vibe-Loom — 매트릭스 히트맵 + Suggestion 카드 UI** `risk:medium` `depends:[S02]`
   > After this: VibeScoreDashboard에 함수×변수명 충돌 매트릭스 히트맵이 색상으로 충돌 강도를 표현하고, 각 충돌에 대한 구조화된 suggestion 카드(변수명, 관련 함수, 수정 방법)가 표시된다.
 
 - [ ] **S04: E2E 검증 — 전체 파이프라인 통합 테스트** `risk:low` `depends:[S03]`

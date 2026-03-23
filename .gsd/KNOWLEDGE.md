@@ -57,3 +57,7 @@
 **Context:** conflict_details의 tx_a/tx_b는 정수 인덱스인데, suggestion 생성에는 함수명이 필요. tx index → function name 매핑은 트랜잭션 블록 구성 시점에 생성해야 정확함 (deploy tx=0="constructor", 이후 tx=stateChangingFns 순서).
 **Rule:** `constructTransactionBlock()`에서 txFunctionMap을 함께 빌드하여 반환. `{ transactions, blockEnv, txFunctionMap }` triple로 반환하는 패턴 사용. function encode 실패로 skip된 함수도 있으므로 인덱스를 직접 추적해야 함.
 
+### VibeScoreDashboard 테스트 — within() 스코핑 필수
+**Discovered:** M006-S03 T02 heatmap + suggestion card 테스트 작성 시
+**Context:** VibeScoreDashboard에 heatmap과 suggestion card가 추가되면서, 함수명(transfer, approve 등)과 변수명(balances, counter 등)이 heatmap 테이블 행/열과 suggestion card 양쪽에 동시 존재한다. `screen.getByText('transfer')`로 찾으면 multiple-elements 에러 발생.
+**Rule:** heatmap/suggestion card 관련 테스트에서는 반드시 `within(screen.getByTestId('conflict-matrix'))` 또는 `within(screen.getAllByTestId('conflict-card')[index])` 형태로 스코프를 한정해야 한다. `@testing-library/react`의 `within` import 필요.
