@@ -79,3 +79,10 @@ NestJS E2E 테스트 파일(`app.e2e-spec.ts`)에 conflict analysis 전용 `desc
 ## Expected Output
 
 - `/home/ahwlsqja/Vibe-Room-Backend/test/app.e2e-spec.ts` — 새 `describe('Conflict Analysis E2E')` 블록 추가 (ParallelConflict + FixedContract 테스트)
+
+## Observability Impact
+
+- **New test signals:** 3 new tests in `Conflict Analysis E2E` describe block (ParallelConflict analysis, backward compat, isolation check). Test pass/fail status is visible in CI output and local jest runs.
+- **Pipeline phase tracing:** The real VibeScoreService logs Phase 1–5b with timing to stderr during E2E test runs, enabling post-mortem diagnosis of pipeline issues.
+- **Mock isolation verification:** An explicit test (`should only mock EngineService in this describe block`) serves as a canary — if EngineService mock leaks to the existing `App (E2E)` block, the heuristic fallback test there would fail.
+- **Failure state inspection:** On assertion failure, Jest's detailed diff output shows the full `res.body.data` structure, including unexpected presence/absence of `conflictAnalysis`, making debugging straightforward.
