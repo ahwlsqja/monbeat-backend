@@ -50,7 +50,7 @@ This milestone is complete only when all are true:
 
 ## Slices
 
-- [ ] **S01: Rust CLI — R/W Set 충돌 데이터 JSON 출력** `risk:high` `depends:[]`
+- [x] **S01: Rust CLI — R/W Set 충돌 데이터 JSON 출력** `risk:high` `depends:[]`
   > After this: CLI에 ParallelConflict 컨트랙트를 넣으면 `conflict_details`에 LocationKey별 충돌 tx 쌍 + 각 tx의 ReadSet/WriteSet 접근 위치가 JSON으로 반환된다. `cargo test`로 검증 가능.
 
 - [ ] **S02: NestJS — Storage Layout 디코딩 + Actionable Suggestion 생성** `risk:high` `depends:[S01]`

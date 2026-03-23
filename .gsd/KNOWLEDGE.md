@@ -31,3 +31,14 @@
 **Discovered:** M003 마일스톤 전체 경험
 **Context:** 라이브 서비스(vibe-loom.xyz + Railway 백엔드 + Monad testnet)를 대상으로 E2E 테스트를 작성할 때, 서비스 상태가 테스트 결과에 직접 영향을 미친다. 테스트넷 지연, API 키 미설정, 잔고 부족 등 외부 요인이 많다.
 **Rule:** (1) 서비스 의존 테스트는 항상 방어적으로 설계 — 다중 유효 상태코드 허용, test.skip() 가드, Promise.race. (2) 스크린샷 증거는 모든 주요 단계에서 캡처 — 실패 시 원인 파악에 필수. (3) 단일 monolithic 테스트 파일에 describe 블록으로 구분하면 실행 순서 제어와 공유 헬퍼 관리가 용이. (4) Monaco editor 등 비동기 UI 컴포넌트는 고정 타임아웃보다 waitForSelector가 안정적.
+
+### CLI conflict_details — 코인베이스 주소가 거의 모든 tx 쌍에서 충돌로 나타남
+**Discovered:** M006-S01 integration check
+**Context:** EVM 실행에서 모든 tx는 gas fee 처리를 위해 coinbase 주소의 Balance/Nonce/CodeHash를 읽고 쓴다. 따라서 2개 이상 tx가 있는 블록에서는 coinbase 관련 read-write/write-write 충돌이 항상 나타난다.
+**Rule:** S02(NestJS)에서 conflict_details를 분석할 때 coinbase 주소 관련 충돌은 필터링하거나 우선순위를 낮춰야 한다. 이는 사용자가 수정할 수 없는 EVM 내재적 동작이며, actionable suggestion 대상이 아니다. `block_env.coinbase` 값과 conflict location의 address를 비교하여 필터링.
+
+### TxState.read_set — 이미 Option<ReadSet> 필드가 존재했음
+**Discovered:** M006-S01 T01 구현 시
+**Context:** S01 계획에서 "ReadSet 보존이 가장 큰 리스크"로 평가되었으나, 실제로는 `TxState`에 이미 `read_set: Option<ReadSet>` 필드가 존재하고 `take_read_set()`이 구현되어 있었다. `return_read_set()` 역방향 메서드 추가와 validation success path에서의 호출만으로 완료.
+**Rule:** monad-core scheduler의 `TxState`는 mutex로 보호되며, `take_*()` / `return_*()` 패턴으로 thread-safe 접근. 새 필드 추가 시에도 같은 패턴을 따르면 됨.
+

@@ -31,3 +31,5 @@
 | D023 | M005 | strategy | 재단 그랜츠 어필 포인트 | NINE FORK 준수 + 병렬 실행 최적화를 핵심 어필 포인트로 | Monad AI Blueprint 프로그램과 방향 일치. 다른 도구가 제공하지 못하는 유일한 가치 | Yes |
 | D024 | M006 | arch | R/W Set 충돌 시각화 형태 | 함수×변수명 매트릭스 히트맵 | 정보 밀도 높음. 그래프/네트워크는 복잡한 충돌에서 혼잡해질 수 있음. 매트릭스는 함수-변수 교차점에서 충돌 강도를 색상으로 직관적 표현 | Yes — 사용자 피드백에 따라 그래프 뷰 추가 가능 |
 | D025 | M006 | arch | Storage layout 디코딩 범위 | solc storageLayout 기반 full 디코딩 (단순 변수 + mapping base slot + dynamic array) | raw slot 번호 대신 변수명/mapping명으로 표시하면 제안의 실용성이 크게 향상. solc가 이미 layout 정보를 제공하므로 추가 비용 낮음 | No |
+| D026 | M006-S01 | arch | ReadSet 보존 전략 | return_read_set() on validation success only; failure drops ReadSet (tx re-executes with fresh one) | Validation failure = tx 재실행 → 새 ReadSet 생성. stale ReadSet 보존은 불필요하고 misleading | No |
+| D027 | M006-S01 | arch | CLI conflict_details 직렬화 경계 | CLI-specific types (LocationInfo, ConflictPair) via pattern-matching, mv-state에 Serialize 추가 안 함 | mv-state는 hot execution path. serde derives 추가 시 전체 consumer에 컴파일 비용 증가. 직렬화 경계를 CLI에 한정 | Yes — 다수 consumer가 필요 시 중앙화 가능 |
