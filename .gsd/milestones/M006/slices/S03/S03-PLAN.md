@@ -42,7 +42,7 @@
   - Verify: `cd /home/ahwlsqja/Vibe-Loom && npx tsc --noEmit` passes
   - Done when: TypeScript compiles cleanly, heatmap and suggestion card JSX exists in the component, prop is wired in page.tsx
 
-- [ ] **T02: Add unit tests for heatmap, structured suggestion cards, and backward compatibility** `est:30m`
+- [x] **T02: Add unit tests for heatmap, structured suggestion cards, and backward compatibility** `est:30m`
   - Why: Verifies all new rendering paths and confirms existing tests remain green. This is the slice's objective stopping condition.
   - Files: `Vibe-Loom/src/__tests__/VibeScoreDashboard.test.tsx`
   - Do: Add 5+ tests: (1) heatmap table renders when `conflictAnalysis` provided with mock data, (2) heatmap absent when `conflictAnalysis` undefined, (3) structured suggestion cards show variable names and function names, (4) conflict type badge rendered, (5) empty matrix guard — no table when rows/cols empty. All existing 10 tests must pass unchanged.
