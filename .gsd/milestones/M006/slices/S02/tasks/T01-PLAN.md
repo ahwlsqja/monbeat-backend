@@ -125,6 +125,12 @@ estimated_files: 5
 - `cd Vibe-Room-Backend && npx jest test/compile.service.spec.ts` — 기존 6개 + 새 1개 이상 테스트 통과
 - `cd Vibe-Room-Backend && npx jest test/engine.service.spec.ts` — 기존 테스트 깨지지 않음 (CliOutput 확장은 optional field이므로)
 
+## Observability Impact
+
+- **Signals changed:** `CompileResultDto` now carries optional `storageLayout` field — downstream can inspect whether solc produced layout data by checking field presence.
+- **Inspection:** compile test output verifies `storageLayout.storage[].label` values. In runtime, if `storageLayout` is undefined (solc failure or unsupported version), downstream phases silently skip conflict analysis with no error.
+- **Failure visibility:** solc compilation errors are already surfaced via `BadRequestException`. The new `storageLayout` field is optional — its absence is the only visible signal of extraction failure (no additional error thrown).
+
 ## Inputs
 
 - `Vibe-Room-Backend/src/contracts/compile.service.ts` — 현재 solc outputSelection에 storageLayout 미포함. SolcOutput 타입에 storageLayout 필드 없음

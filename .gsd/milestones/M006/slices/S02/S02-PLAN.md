@@ -25,6 +25,7 @@
 - `cd Vibe-Room-Backend && npx jest test/compile.service.spec.ts` — 기존 테스트 모두 통과 + storageLayout 추출 테스트 통과
 - `cd Vibe-Room-Backend && npx jest test/storage-layout-decoder.spec.ts` — decoder 모듈 8+ 테스트 통과 (slot 매칭, mapping heuristic, coinbase 필터, suggestion 생성, matrix 빌드)
 - `cd Vibe-Room-Backend && npx jest test/vibe-score.service.spec.ts` — 기존 테스트 모두 통과 + conflict_details 있는 경우 conflictAnalysis 포함 테스트 + conflict_details 없는 경우 backward compat 테스트
+- `cd Vibe-Room-Backend && npx jest test/storage-layout-decoder.spec.ts -- --testNamePattern="undefined|unknown"` — storageLayout undefined 시 graceful omit + 디코딩 실패 시 unknown_slot fallback 테스트 통과
 
 ## Observability / Diagnostics
 
@@ -41,7 +42,7 @@
 
 ## Tasks
 
-- [ ] **T01: CompileService storageLayout 추출 + 전체 TypeScript 인터페이스 정의** `est:30m`
+- [x] **T01: CompileService storageLayout 추출 + 전체 TypeScript 인터페이스 정의** `est:30m`
   - Why: 모든 downstream 로직의 기반. solc에서 storageLayout을 추출하지 않으면 slot→변수명 디코딩이 불가능. CliOutput 인터페이스도 S01 스키마와 일치시켜야 decoder가 파싱 가능.
   - Files: `Vibe-Room-Backend/src/contracts/compile.service.ts`, `Vibe-Room-Backend/src/contracts/dto/compile-result.dto.ts`, `Vibe-Room-Backend/src/engine/engine.service.ts`, `Vibe-Room-Backend/src/vibe-score/dto/vibe-score-result.dto.ts`, `Vibe-Room-Backend/test/compile.service.spec.ts`
   - Do: (1) compile.service.ts의 solc outputSelection에 `'storageLayout'` 추가, SolcOutput 타입에 storageLayout 추가. (2) compile-result.dto.ts에 `storageLayout?: StorageLayout` 추가 + StorageLayout/StorageEntry/StorageTypeInfo 인터페이스 정의. (3) engine.service.ts의 CliOutput에 `conflict_details?: ConflictDetails` + S01 스키마 매칭 타입들 추가. (4) vibe-score-result.dto.ts에 `conflictAnalysis?: ConflictAnalysis` + DecodedConflict/ConflictMatrix 인터페이스 정의. (5) compile.service.spec.ts에 storageLayout 추출 확인 테스트 추가.
