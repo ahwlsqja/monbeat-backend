@@ -17,7 +17,8 @@
 - `cd /home/ahwlsqja/Vibe-Room-Backend && npx jest --forceExit` — 기존 전체 테스트 스위트 pass 유지
 - `cd /home/ahwlsqja/Vibe-Loom && npx jest` — 기존 프론트엔드 단위 테스트 pass 유지
 - `cd /home/ahwlsqja/Vibe-Loom && npx playwright test e2e/full-stack.spec.ts` — 새 conflict analysis 테스트 pass 또는 graceful skip (라이브 서비스 상태 의존)
-- `cd /home/ahwlsqja/Vibe-Room-Backend && npx jest --config ./test/jest-e2e.json --forceExit -t "isolation check"` — EngineService mock이 Conflict Analysis E2E 블록에만 격리되었는지 확인
+- `cd /home/ahwlsqja/Vibe-Room-Backend && npx jest --config ./test/jest-e2e.json --forceExit -t "isolation check"` — EngineService mock이 Conflict Analysis E2E 블록에만 격리되었는지 확인 (NOTE: 단독 실행 시 앞선 테스트가 skip되어 mock 미호출로 실패 — 전체 E2E 실행에서만 유효)
+- `cd /home/ahwlsqja/Vibe-Loom && npx playwright test e2e/full-stack.spec.ts --reporter=list 2>&1 | grep -E 'Conflict|timeout|gauge|heatmap'` — Playwright Conflict Analysis 테스트의 outcome 로그 확인 (graceful skip 경로 진단)
 
 ## Tasks
 
@@ -28,7 +29,7 @@
   - Verify: `cd /home/ahwlsqja/Vibe-Room-Backend && npx jest test/app.e2e-spec.ts --forceExit`
   - Done when: 새 conflict analysis 테스트 2개 이상 pass + 기존 테스트 모두 pass
 
-- [ ] **T02: Playwright E2E — 히트맵 렌더링 + 하위 호환 검증** `est:30m`
+- [x] **T02: Playwright E2E — 히트맵 렌더링 + 하위 호환 검증** `est:30m`
   - Why: 라이브 서비스에서 전체 파이프라인(ParallelConflict → Rust CLI → NestJS → Vibe-Loom)이 실제로 동작하는지 브라우저 레벨에서 검증. S03에서 추가된 UI 컴포넌트가 실제 API 데이터로 렌더링되는지 확인.
   - Files: `Vibe-Loom/e2e/full-stack.spec.ts`
   - Do: (1) 기존 파일에 `test.describe('Conflict Analysis E2E')` 블록 추가. (2) ParallelConflict 테스트: contract selector에서 ParallelConflict 선택 → Vibe Score 클릭 → `[data-testid="conflict-matrix"]` visible + `[data-testid="conflict-card"]` present + 'counter' 텍스트 확인. Promise.race 패턴으로 타임아웃/서비스 미배포 시 graceful skip. (3) FixedContract 하위 호환 테스트: FixedContract 선택 → Vibe Score → SVG gauge visible + `[data-testid="conflict-matrix"]` NOT present. (4) 각 단계에서 스크린샷 증거 캡처.
