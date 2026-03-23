@@ -35,7 +35,7 @@
 
 ## Tasks
 
-- [ ] **T01: Add conflict analysis types, heatmap rendering, suggestion cards, and page wiring** `est:45m`
+- [x] **T01: Add conflict analysis types, heatmap rendering, suggestion cards, and page wiring** `est:45m`
   - Why: This is the entire implementation — types, component rendering, and prop wiring. Without this, the dashboard has no conflict visualization.
   - Files: `Vibe-Loom/src/lib/api-client.ts`, `Vibe-Loom/src/components/ide/VibeScoreDashboard.tsx`, `Vibe-Loom/src/app/page.tsx`
   - Do: (1) Add `DecodedConflict`, `ConflictMatrix`, `ConflictAnalysis` interfaces to `api-client.ts` mirroring backend DTO. Add `conflictAnalysis?: ConflictAnalysis` to `VibeScoreResult`. (2) Add `conflictAnalysis?: ConflictAnalysis` to `VibeScoreDashboardProps`. Render Section 4 (matrix heatmap as HTML table with oklch color scale) and Section 5 (structured suggestion cards with variable name, functions, conflict type badge). Guard with `{conflictAnalysis && ...}`. (3) Pass `vibeScore?.conflictAnalysis` prop in `page.tsx`. Use design tokens only — no hardcoded hex. Use `stagger-item` for card animations.
@@ -48,6 +48,18 @@
   - Do: Add 5+ tests: (1) heatmap table renders when `conflictAnalysis` provided with mock data, (2) heatmap absent when `conflictAnalysis` undefined, (3) structured suggestion cards show variable names and function names, (4) conflict type badge rendered, (5) empty matrix guard — no table when rows/cols empty. All existing 10 tests must pass unchanged.
   - Verify: `cd /home/ahwlsqja/Vibe-Loom && npx jest src/__tests__/VibeScoreDashboard.test.tsx --verbose` — all tests pass
   - Done when: 15+ total tests pass (10 existing + 5+ new), zero failures
+
+## Observability / Diagnostics
+
+- **Runtime signals:** When `conflictAnalysis` is present in the API response, the heatmap section and structured suggestion cards render. When absent, the component renders identically to the pre-S03 version — no console output, no side effects. All rendering is pure/presentational.
+- **Inspection surface:** React DevTools → `VibeScoreDashboard` props → `conflictAnalysis` prop shows the full conflict matrix and decoded conflicts object. DOM inspection: `data-testid="conflict-matrix"` on the heatmap table, `data-testid="conflict-card"` on each structured card.
+- **Failure visibility:** If `conflictAnalysis` contains an empty `matrix.rows` or `matrix.cols`, the heatmap section is suppressed (guard clause). If `conflicts` array is empty, plain suggestion cards render as fallback. No error boundary needed — the component is stateless.
+- **Redaction:** No secrets or PII in conflict analysis data — all fields are contract-level (variable names, function names, slot identifiers).
+
+## Verification (diagnostic/failure-path)
+
+- Backward compatibility: rendering with `conflictAnalysis={undefined}` produces identical DOM to pre-S03 — verified by existing test suite passing unchanged.
+- Empty matrix guard: rendering with `conflictAnalysis={{ conflicts: [], matrix: { rows: [], cols: [], cells: [] } }}` produces no heatmap table — verified by unit test.
 
 ## Files Likely Touched
 

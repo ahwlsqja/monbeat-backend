@@ -1,4 +1,4 @@
-# M001: Vibe-Room Backend — NestJS 백엔드 + 엔진 통합 + Railway 배포
+# M001: Vibe-Room Backend - NestJS 백엔드 + 엔진 통합 + Railway 배포
 
 **Vision:** Vibe-Loom의 스마트 컨트랙트 보안 검증 API를 NestJS로 재구성하고, monad-core Rust 병렬 EVM 엔진을 연동하여 실측 기반 vibe-score를 제공하며, GitHub OAuth + WalletConnect 인증과 Paymaster를 갖춘 라이브 서비스를 Railway에 배포한다.
 

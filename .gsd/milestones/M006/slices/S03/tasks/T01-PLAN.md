@@ -70,6 +70,13 @@ Add the complete frontend implementation for conflict analysis visualization: Ty
 - `cd /home/ahwlsqja/Vibe-Loom && npx jest src/__tests__/VibeScoreDashboard.test.tsx --verbose` — existing 10 tests still pass
 - `cd /home/ahwlsqja/Vibe-Loom && npx jest src/__tests__/api-client.test.ts --verbose` — existing 10 tests still pass
 
+## Observability Impact
+
+- **New test IDs:** `data-testid="conflict-matrix"` on the heatmap `<table>`, `data-testid="conflict-card"` on each structured suggestion card. These enable both test selectors and agent DOM inspection.
+- **Inspect via:** React DevTools props panel for `VibeScoreDashboard` — `conflictAnalysis` prop is the single source of truth for conflict visualization state.
+- **Failure state visible:** When `conflictAnalysis` is undefined or has empty matrix, the heatmap section is absent from the DOM entirely. When `conflicts` array is empty, plain suggestion cards render instead of structured ones.
+- **No new console output:** Component is pure presentational — no `console.log` or error boundary additions.
+
 ## Inputs
 
 - `Vibe-Loom/src/lib/api-client.ts` — existing `VibeScoreResult` interface to extend

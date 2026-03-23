@@ -1,4 +1,4 @@
-# M003: Full-Stack E2E QA — 시제품 수준 통합 검증
+# M003: Full-Stack E2E QA - 시제품 수준 통합 검증
 
 **Vision:** 브라우저에서 라이브 서비스까지 관통하는 Playwright E2E 테스트로 전체 사용자 플로우를 시제품 QA 수준으로 자동 검증한다.
 

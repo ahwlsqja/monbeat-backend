@@ -1,4 +1,4 @@
-# M005: Monad Ecosystem UX Research — 사용자가 진짜 필요한 것 찾기
+# M005: Monad Ecosystem UX Research - 사용자가 진짜 필요한 것 찾기
 
 **Vision:** Vibe-Loom의 다음 개발 방향을 데이터 기반으로 결정한다. 모나드 생태계 현황, 경쟁 제품, 개발자 pain point, 킬러 기능 후보를 조사하고, 리서치 결과를 기능 우선순위 매트릭스 + 구체적 다음 마일스톤 제안으로 정리한다.
 

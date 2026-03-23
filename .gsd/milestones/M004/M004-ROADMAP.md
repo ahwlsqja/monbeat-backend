@@ -1,4 +1,4 @@
-# M004: Vibe-Loom UI Redesign — Refined Technical Aesthetic
+# M004: Vibe-Loom UI Redesign - Refined Technical Aesthetic
 
 **Vision:** impeccable 디자인 원칙을 적용하여 Vibe-Loom을 Bloomberg Terminal 수준의 정보 밀도와 세련된 심미성을 갖춘 Refined Technical IDE로 전면 재설계한다. 기능은 동일하게 유지하면서 시각적으로 "AI가 만든 것 같지 않은" 수준의 디자인 퀄리티를 달성한다.
 
