@@ -1641,6 +1641,7 @@ dependencies = [
  "alloy-primitives",
  "hex",
  "monad-evm",
+ "monad-mv-state",
  "monad-scheduler",
  "monad-state",
  "monad-types",

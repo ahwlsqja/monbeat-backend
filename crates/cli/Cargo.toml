@@ -13,6 +13,7 @@ monad-types = { path = "../types" }
 monad-state = { path = "../state" }
 monad-scheduler = { path = "../scheduler" }
 monad-evm = { path = "../evm" }
+monad-mv-state = { path = "../mv-state" }
 alloy-primitives = { workspace = true }
 serde = { workspace = true }
 serde_json = "1.0"

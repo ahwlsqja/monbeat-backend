@@ -50,7 +50,7 @@
   - Verify: `cargo test -p monad-scheduler` — 기존 24개 + 새 테스트 모두 통과
   - Done when: `collect_results()` 반환값에 ReadSet이 포함되고, 기존 테스트 24개 + 새 테스트 1개 이상 모두 green
 
-- [ ] **T02: Build CLI conflict detection module and wire conflict_details into JSON output** `est:1h30m`
+- [x] **T02: Build CLI conflict detection module and wire conflict_details into JSON output** `est:1h30m`
   - Why: T01에서 보존된 ReadSet/WriteSet 데이터를 활용하여 실제 충돌을 검출하고 CLI JSON에 포함. 이것이 S01의 최종 산출물이자 S02(NestJS)의 입력 스키마.
   - Files: `crates/cli/src/conflict.rs` (신규), `crates/cli/src/main.rs`, `crates/cli/Cargo.toml`
   - Do: (1) `Cargo.toml`에 `monad-mv-state` 의존성 추가. (2) `conflict.rs` 모듈 생성: `ConflictDetails`, `TxAccessSummary`, `LocationInfo`, `ConflictPair` 직렬화 타입 정의. `detect_conflicts()` 함수 구현 (모든 tx 쌍에서 write-write, read-write 교차점 검출). `LocationKey` → `LocationInfo` 변환 함수 구현. (3) `main.rs`에서 `mod conflict;` 선언, `CliOutput`에 `conflict_details` 필드 추가. (4) `par_result.tx_results` 3-tuple 반복문 업데이트. (5) 실행 후 `detect_conflicts()` 호출하여 결과에 포함. (6) `conflict.rs`에 단위 테스트 작성: 알려진 ReadSet/WriteSet 조합으로 충돌 검출 정확성 검증 + 충돌 없는 케이스 검증. **주의:** `LocationKey`, `WriteValue`, `ReadOrigin`에 Serialize를 추가하지 않음 — CLI 전용 타입으로 변환.

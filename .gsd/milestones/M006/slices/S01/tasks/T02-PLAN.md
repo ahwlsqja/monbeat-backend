@@ -98,3 +98,10 @@ T01에서 보존된 ReadSet/WriteSet을 활용하여 conflict detection 로직�
 - `crates/cli/src/conflict.rs` — 신규: 직렬화 타입 + detect_conflicts() + 단위 테스트
 - `crates/cli/src/main.rs` — CliOutput 확장, conflict_details 통합
 - `crates/cli/Cargo.toml` — monad-mv-state 의존성 추가
+
+## Observability Impact
+
+- **New signal:** `conflict_details` field added to CLI JSON stdout — exposes per-tx read/write locations and inter-tx conflict pairs.
+- **Inspection:** `echo '<block JSON>' | cargo run -p monad-cli 2>/dev/null | jq .conflict_details` shows conflict analysis.
+- **Failure visibility:** Empty `per_tx[i].reads` array with non-empty `writes` indicates ReadSet was not preserved (validation failure path). Empty `conflicts` array on known-conflicting txs indicates detection logic gap.
+- **Downstream:** S02 (NestJS) parses `conflict_details` to build storage layout decoding and heatmap data.
