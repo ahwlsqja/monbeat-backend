@@ -42,3 +42,18 @@
 **Context:** S01 계획에서 "ReadSet 보존이 가장 큰 리스크"로 평가되었으나, 실제로는 `TxState`에 이미 `read_set: Option<ReadSet>` 필드가 존재하고 `take_read_set()`이 구현되어 있었다. `return_read_set()` 역방향 메서드 추가와 validation success path에서의 호출만으로 완료.
 **Rule:** monad-core scheduler의 `TxState`는 mutex로 보호되며, `take_*()` / `return_*()` 패턴으로 thread-safe 접근. 새 필드 추가 시에도 같은 패턴을 따르면 됨.
 
+### solc storageLayout — slot 값이 decimal string, CLI conflict_details는 hex string
+**Discovered:** M006-S02 T02 storage-layout-decoder 구현 시
+**Context:** solc `storageLayout.storage[].slot`은 `"0"`, `"1"` 등 decimal string이고, monad-core CLI `conflict_details`의 slot은 `"0x0"`, `"0x1"` 등 hex string이다. 직접 문자열 비교하면 매칭 실패.
+**Rule:** slot 비교 시 반드시 양쪽 모두 `BigInt()` 변환 후 비교. hex는 `BigInt("0x0")`, decimal은 `BigInt("0")`. `parseInt`는 큰 수(keccak256-derived slot)에서 정밀도 손실되므로 사용 금지.
+
+### Mapping runtime slot — keccak256 기반 slot은 선언 범위를 크게 초과
+**Discovered:** M006-S02 T02 mapping heuristic 구현 시
+**Context:** Solidity mapping의 runtime storage slot은 `keccak256(key . base_slot)`으로 계산되어, 선언된 slot 범위(0, 1, 2, ...)를 크게 초과하는 값이 된다. 예: `mapping(address => uint256) balances`의 base slot이 3이면, 특정 key의 runtime slot은 `0x4e0c...` 같은 큰 수.
+**Rule:** Runtime slot이 storageLayout의 max declared slot보다 크면 mapping/dynamic array의 runtime slot으로 간주. 단일 mapping이면 확정 귀속, 복수 mapping이면 후보 목록 보고. 100% 정확도 불가능하지만 단일 mapping 컨트랙트(대부분의 케이스)에서는 정확함.
+
+### constructTransactionBlock — txFunctionMap 패턴
+**Discovered:** M006-S02 T03 VibeScoreService wiring 시
+**Context:** conflict_details의 tx_a/tx_b는 정수 인덱스인데, suggestion 생성에는 함수명이 필요. tx index → function name 매핑은 트랜잭션 블록 구성 시점에 생성해야 정확함 (deploy tx=0="constructor", 이후 tx=stateChangingFns 순서).
+**Rule:** `constructTransactionBlock()`에서 txFunctionMap을 함께 빌드하여 반환. `{ transactions, blockEnv, txFunctionMap }` triple로 반환하는 패턴 사용. function encode 실패로 skip된 함수도 있으므로 인덱스를 직접 추적해야 함.
+

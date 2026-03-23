@@ -53,7 +53,7 @@ This milestone is complete only when all are true:
 - [x] **S01: Rust CLI — R/W Set 충돌 데이터 JSON 출력** `risk:high` `depends:[]`
   > After this: CLI에 ParallelConflict 컨트랙트를 넣으면 `conflict_details`에 LocationKey별 충돌 tx 쌍 + 각 tx의 ReadSet/WriteSet 접근 위치가 JSON으로 반환된다. `cargo test`로 검증 가능.
 
-- [ ] **S02: NestJS — Storage Layout 디코딩 + Actionable Suggestion 생성** `risk:high` `depends:[S01]`
+- [x] **S02: NestJS — Storage Layout 디코딩 + Actionable Suggestion 생성** `risk:high` `depends:[S01]`
   > After this: `/api/vibe-score` 호출 시 충돌된 slot이 Solidity 변수명/mapping명으로 디코딩되고, "mapping `balances`에서 transfer()와 approve()가 충돌 — 별도 mapping 분리 권장" 같은 구체적 수정 제안이 응답에 포함된다.
 
 - [ ] **S03: Vibe-Loom — 매트릭스 히트맵 + Suggestion 카드 UI** `risk:medium` `depends:[S02]`
