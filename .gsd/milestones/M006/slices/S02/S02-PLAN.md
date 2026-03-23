@@ -56,7 +56,7 @@
   - Verify: `cd Vibe-Room-Backend && npx jest test/storage-layout-decoder.spec.ts`
   - Done when: 모든 테스트 통과. ParallelConflict 같은 fixture로 slot "0x0" → "counter" 디코딩, suggestion에 변수명+함수명 포함, matrix rows/cols 정확
 
-- [ ] **T03: VibeScoreService 파이프라인 wiring + 통합 테스트** `est:30m`
+- [x] **T03: VibeScoreService 파이프라인 wiring + 통합 테스트** `est:30m`
   - Why: T01의 타입 정의와 T02의 decoder를 실제 파이프라인에 연결. compile에서 storageLayout 전달, engine 결과에서 conflict_details 파싱, decoder 호출, 응답에 conflictAnalysis 포함. Backward compat 보장 필수.
   - Files: `Vibe-Room-Backend/src/vibe-score/vibe-score.service.ts`, `Vibe-Room-Backend/test/vibe-score.service.spec.ts`
   - Do: (1) Phase 1에서 compile 결과의 storageLayout 캡처. (2) Phase 3에서 tx index → function name Map 빌드 (deploy tx=0 → "constructor", 이후는 stateChangingFns[i].name). (3) Phase 5 뒤에 "Phase 5b: Conflict analysis" 추가 — engineResult.conflict_details 존재 시 buildConflictAnalysis() 호출. coinbase = blockEnv.coinbase. (4) conflictAnalysis가 비어있지 않으면 result에 포함, 비어있으면 omit. (5) 기존 vibe-score.service.spec.ts 테스트 전부 유지 + 새 테스트 3개: conflict_details 있는 mock → conflictAnalysis 포함 확인, conflict_details 없는 mock → conflictAnalysis omit 확인, storageLayout undefined → conflictAnalysis omit 확인.
