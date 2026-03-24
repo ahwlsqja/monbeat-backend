@@ -9,7 +9,7 @@
 //!
 //! # Observability
 //!
-//! - `ParallelExecutionResult::tx_results` — per-tx (ExecutionResult, WriteSet) in block order
+//! - `ParallelExecutionResult::tx_results` — per-tx (ExecutionResult, WriteSet, ReadSet) in block order
 //! - `ParallelExecutionResult::beneficiary_tracker` — accumulated gas fees via LazyBeneficiaryTracker
 //! - Worker count is capped at `min(num_workers, block_size, MAX_WORKERS)` — observable via function args
 //! - On completion, all TxState entries have status `Validated` and `incarnation >= 0`
@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 
 use monad_mv_state::{
     lazy_updates::LazyBeneficiaryTracker,
-    read_write_sets::WriteSet,
+    read_write_sets::{ReadSet, WriteSet},
     versioned_state::MVHashMap,
 };
 use monad_state::StateProvider;
@@ -36,11 +36,12 @@ const MAX_WORKERS: usize = 4;
 
 /// Result of parallel block execution.
 ///
-/// Contains per-transaction execution results and write-sets in block order,
+/// Contains per-transaction execution results, write-sets, and read-sets in block order,
 /// plus the accumulated gas fees for the block beneficiary.
 pub struct ParallelExecutionResult {
-    /// One `(ExecutionResult, WriteSet)` per transaction, in block order (tx_index 0, 1, 2, ...).
-    pub tx_results: Vec<(ExecutionResult, WriteSet)>,
+    /// One `(ExecutionResult, WriteSet, ReadSet)` per transaction, in block order (tx_index 0, 1, 2, ...).
+    /// ReadSets are preserved after successful validation for downstream conflict analysis.
+    pub tx_results: Vec<(ExecutionResult, WriteSet, ReadSet)>,
     /// Accumulated gas fees for the block beneficiary, tracked via side-channel
     /// to avoid false conflicts on the coinbase address.
     pub beneficiary_tracker: LazyBeneficiaryTracker,
@@ -257,6 +258,10 @@ fn handle_validate(
             .lock()
             .expect("beneficiary tracker mutex not poisoned")
             .clear_tx(tx_idx);
+    } else {
+        // Validation succeeded — return the ReadSet to TxState so
+        // collect_results() can include it for conflict analysis.
+        scheduler.return_read_set(tx_idx, read_set);
     }
 
     scheduler.finish_validation(tx_idx, valid);
@@ -344,7 +349,7 @@ mod tests {
         assert_eq!(result.tx_results.len(), 2, "should have 2 tx results");
 
         // Both should succeed.
-        for (i, (exec_result, write_set)) in result.tx_results.iter().enumerate() {
+        for (i, (exec_result, write_set, _read_set)) in result.tx_results.iter().enumerate() {
             assert!(
                 exec_result.is_success(),
                 "tx {} should succeed, got: {:?}",
@@ -404,5 +409,71 @@ mod tests {
         assert!(result.tx_results[0].0.is_success());
         assert!(!result.tx_results[0].1.is_empty());
         assert_eq!(result.beneficiary_tracker.len(), 1);
+    }
+
+    /// Verify that ReadSets are preserved after successful validation and
+    /// included in collect_results() output. This is the prerequisite for
+    /// downstream conflict analysis.
+    #[test]
+    fn test_read_set_preserved_after_validation() {
+        use monad_mv_state::types::LocationKey;
+
+        let base_state: Arc<dyn StateProvider> = Arc::new(
+            InMemoryState::new()
+                .with_account(sender_a(), AccountInfo::new(U256::from(1_000_000_000_000u64), 0))
+                .with_account(sender_b(), AccountInfo::new(U256::from(1_000_000_000_000u64), 0))
+                .with_account(coinbase_addr(), AccountInfo::new(U256::ZERO, 0)),
+        );
+
+        let block_env = make_block_env();
+        let transactions = vec![
+            make_transfer(sender_a(), receiver_a(), 1000, 0),
+            make_transfer(sender_b(), receiver_b(), 2000, 0),
+        ];
+
+        let result = execute_block_parallel(&transactions, base_state, &block_env, 2);
+
+        assert_eq!(result.tx_results.len(), 2, "should have 2 tx results");
+
+        // Both transactions should succeed.
+        for (i, (exec_result, _, _)) in result.tx_results.iter().enumerate() {
+            assert!(
+                exec_result.is_success(),
+                "tx {} should succeed, got: {:?}",
+                i,
+                exec_result
+            );
+        }
+
+        // Verify ReadSets are non-empty (each value transfer reads sender balance + nonce).
+        for (i, (_, _, read_set)) in result.tx_results.iter().enumerate() {
+            assert!(
+                !read_set.is_empty(),
+                "tx {} ReadSet should be non-empty after validation, got empty (data loss)",
+                i,
+            );
+
+            // Collect location keys from the ReadSet for inspection.
+            let location_keys: Vec<&LocationKey> = read_set.iter().map(|(k, _)| k).collect();
+
+            // Value transfers must read the sender's Balance and Nonce at minimum.
+            let has_balance = location_keys
+                .iter()
+                .any(|k| matches!(k, LocationKey::Balance(_)));
+            let has_nonce = location_keys
+                .iter()
+                .any(|k| matches!(k, LocationKey::Nonce(_)));
+
+            assert!(
+                has_balance,
+                "tx {} ReadSet should contain a Balance read, got: {:?}",
+                i, location_keys
+            );
+            assert!(
+                has_nonce,
+                "tx {} ReadSet should contain a Nonce read, got: {:?}",
+                i, location_keys
+            );
+        }
     }
 }

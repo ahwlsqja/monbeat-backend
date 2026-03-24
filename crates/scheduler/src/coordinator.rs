@@ -209,6 +209,16 @@ impl Scheduler {
         state.read_set.take().unwrap_or_default()
     }
 
+    /// Return a read-set back to a transaction's state after successful validation.
+    ///
+    /// This is the inverse of `take_read_set()`. Called after validation succeeds
+    /// so that `collect_results()` can include the ReadSet in its output for
+    /// downstream conflict analysis.
+    pub fn return_read_set(&self, tx_index: TxIndex, read_set: ReadSet) {
+        let mut state = self.tx_states[tx_index as usize].lock();
+        state.read_set = Some(read_set);
+    }
+
     /// Handle execution completion when an ESTIMATE marker was hit.
     ///
     /// The transaction did not complete — no results to publish. Decrements
@@ -249,11 +259,13 @@ impl Scheduler {
         self.finish_execution(tx_index, incarnation, rs, ws, error_result);
     }
 
-    /// Collect all execution results and write-sets in block order after completion.
+    /// Collect all execution results, write-sets, and read-sets in block order after completion.
     ///
     /// Panics if called before `done()` returns true. Takes ownership of stored
-    /// results and write-sets from each TxState.
-    pub fn collect_results(&self) -> Vec<(ExecutionResult, WriteSet)> {
+    /// results, write-sets, and read-sets from each TxState. ReadSets are preserved
+    /// after successful validation via `return_read_set()` — if missing (e.g. after
+    /// error execution), defaults to an empty ReadSet.
+    pub fn collect_results(&self) -> Vec<(ExecutionResult, WriteSet, ReadSet)> {
         let mut results = Vec::with_capacity(self.block_size as usize);
         for i in 0..self.block_size {
             let mut state = self.tx_states[i as usize].lock();
@@ -262,7 +274,8 @@ impl Scheduler {
                 reason: "No result stored".to_string(),
             });
             let write_set = state.write_set.take().unwrap_or_default();
-            results.push((result, write_set));
+            let read_set = state.read_set.take().unwrap_or_default();
+            results.push((result, write_set, read_set));
         }
         results
     }

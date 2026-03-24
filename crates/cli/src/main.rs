@@ -29,6 +29,9 @@ use monad_scheduler::execute_block_parallel;
 use monad_state::InMemoryState;
 use monad_types::{AccountInfo, BlockEnv, ExecutionResult, Transaction};
 
+mod conflict;
+use conflict::{detect_conflicts, ConflictDetails};
+
 // ── Input types (matching NestJS VibeScoreService output) ──
 
 #[derive(Deserialize)]
@@ -65,6 +68,7 @@ struct CliOutput {
     results: Vec<TxResultOutput>,
     incarnations: Vec<u32>,
     stats: CliStats,
+    conflict_details: ConflictDetails,
 }
 
 #[derive(Serialize)]
@@ -172,12 +176,15 @@ fn main() {
         4, // worker threads
     );
 
+    // Detect conflicts from ReadSet/WriteSet data
+    let conflict_details = detect_conflicts(&par_result.tx_results);
+
     // Convert results to output format
     let mut total_gas = 0u64;
     let results: Vec<TxResultOutput> = par_result
         .tx_results
         .iter()
-        .map(|(exec_result, _write_set)| {
+        .map(|(exec_result, _write_set, _read_set)| {
             let (success, gas_used, output, error, logs_count) = match exec_result {
                 ExecutionResult::Success {
                     gas_used,
@@ -232,6 +239,7 @@ fn main() {
             num_conflicts,
             num_re_executions,
         },
+        conflict_details,
     };
 
     // Write output JSON to stdout
