@@ -1,9 +1,5 @@
-# GSD runtime files
-.gsd/gsd.db-shm
-.gsd/gsd.db-wal
-.gsd/runtime/
-.gsd/STATE.md
-.gsd/milestones/*/M*-META.json
+# GSD (agent workspace — not versioned)
+.gsd/
 .bg-shell/
 
 # Rust build artifacts
@@ -11,18 +7,22 @@ target/
 
 # OS files
 .DS_Store
-
-# ── GSD baseline (auto-generated) ──
 Thumbs.db
+
+# Editor
 *.swp
 *.swo
 *~
 .idea/
 .vscode/
 *.code-workspace
+
+# Env
 .env
 .env.*
 !.env.example
+
+# Build artifacts
 node_modules/
 .next/
 dist/
