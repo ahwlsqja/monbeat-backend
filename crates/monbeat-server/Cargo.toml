@@ -1,0 +1,44 @@
+[package]
+name = "monbeat-server"
+version = "0.1.0"
+edition = "2021"
+description = "MonBeat simulation server — compiles Solidity, executes via monad-core parallel EVM, returns execution results + game events."
+
+[lib]
+name = "monbeat_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "monbeat-server"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace crates
+monad-types = { path = "../types" }
+monad-state = { path = "../state" }
+monad-scheduler = { path = "../scheduler" }
+monad-evm = { path = "../evm" }
+monad-mv-state = { path = "../mv-state" }
+
+# Alloy (ABI parsing + primitives)
+alloy-primitives = { workspace = true }
+alloy-json-abi = "1.5"
+
+# Web framework
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = "1.0"
+
+# Utilities
+hex = "0.4"
+thiserror = { workspace = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tempfile = "3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }

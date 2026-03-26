@@ -9,6 +9,7 @@ members = [
     "crates/mv-state",
     "crates/scheduler",
     "crates/cli",
+    "crates/monbeat-server",
 ]
 
 [workspace.dependencies]
