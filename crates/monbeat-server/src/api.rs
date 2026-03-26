@@ -43,6 +43,8 @@ use crate::game_events::{ConflictInput, GameEvent, GameEventMapper, TxResult};
 pub struct AppState {
     /// Server start time for uptime calculation.
     pub start_time: Instant,
+    /// Limits concurrent simulation runs (prevents overload).
+    pub simulation_semaphore: tokio::sync::Semaphore,
 }
 
 // ---------------------------------------------------------------------------
@@ -128,13 +130,34 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> 
 
 /// POST /api/simulate — full simulation pipeline.
 pub async fn simulate(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Json(req): Json<SimulateRequest>,
 ) -> Result<Json<SimulateResponse>, (StatusCode, Json<ErrorBody>)> {
-    let _ = state; // AppState available for future use (rate limiting, etc.)
+    let result = run_simulation(&req.source).await?;
+    Ok(Json(result.response))
+}
 
+// ---------------------------------------------------------------------------
+// Shared simulation pipeline (used by both REST and WebSocket handlers)
+// ---------------------------------------------------------------------------
+
+/// Result of a simulation run, including both the JSON-serializable response
+/// and the raw game events for binary streaming.
+pub struct SimulationResult {
+    /// Full JSON response (same as the REST endpoint returns).
+    pub response: SimulateResponse,
+    /// Game events for binary streaming (same data as response.game_events,
+    /// but owned separately so the WS handler can consume them without cloning).
+    pub game_events: Vec<GameEvent>,
+}
+
+/// Run the full Solidity simulation pipeline:
+/// compile → build block → parallel execute → conflict detect → map game events.
+///
+/// Shared between the REST handler and the WebSocket handler.
+pub async fn run_simulation(source: &str) -> Result<SimulationResult, (StatusCode, Json<ErrorBody>)> {
     // 1. Compile
-    let compile_result = compiler::compile(&req.source).map_err(|e| {
+    let compile_result = compiler::compile(source).map_err(|e| {
         tracing::warn!(error = %e, "compilation failed");
         (
             StatusCode::BAD_REQUEST,
@@ -251,7 +274,7 @@ pub async fn simulate(
         "simulation complete"
     );
 
-    Ok(Json(SimulateResponse {
+    let response = SimulateResponse {
         results: tx_result_outputs,
         incarnations: par_result.incarnations,
         stats: ExecutionStats {
@@ -261,8 +284,13 @@ pub async fn simulate(
             num_re_executions,
         },
         conflict_details,
+        game_events: game_events.clone(),
+    };
+
+    Ok(SimulationResult {
+        response,
         game_events,
-    }))
+    })
 }
 
 // ---------------------------------------------------------------------------

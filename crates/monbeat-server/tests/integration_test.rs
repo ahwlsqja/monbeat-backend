@@ -12,6 +12,7 @@ use axum::{routing, Router};
 use tower_http::cors::CorsLayer;
 
 use monbeat_server::api;
+use monbeat_server::ws;
 
 /// Check if solc is available. If not, tests skip gracefully.
 fn has_solc() -> bool {
@@ -25,10 +26,12 @@ fn has_solc() -> bool {
 async fn spawn_test_server() -> String {
     let state = Arc::new(api::AppState {
         start_time: Instant::now(),
+        simulation_semaphore: tokio::sync::Semaphore::new(4),
     });
 
     let app = Router::new()
         .route("/api/simulate", routing::post(api::simulate))
+        .route("/ws", routing::any(ws::ws_handler))
         .route("/health", routing::get(api::health))
         .layer(CorsLayer::permissive())
         .with_state(state);
