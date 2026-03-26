@@ -35,11 +35,12 @@ async fn main() {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(3000);
 
-    // Optional PostgreSQL pool
+    // Optional PostgreSQL pool (with 5s connect timeout)
     let db = match std::env::var("DATABASE_URL") {
         Ok(url) => {
             match sqlx::postgres::PgPoolOptions::new()
                 .max_connections(10)
+                .acquire_timeout(std::time::Duration::from_secs(5))
                 .connect(&url)
                 .await
             {
@@ -63,20 +64,31 @@ async fn main() {
         }
     };
 
-    // Optional Redis connection
+    // Optional Redis connection (with 5s timeout)
     let redis = match std::env::var("REDIS_URL") {
         Ok(url) => {
             match redis::Client::open(url.as_str()) {
-                Ok(client) => match redis::aio::ConnectionManager::new(client).await {
-                    Ok(mgr) => {
-                        tracing::info!("Redis connected");
-                        Some(tokio::sync::Mutex::new(mgr))
+                Ok(client) => {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        redis::aio::ConnectionManager::new(client),
+                    )
+                    .await
+                    {
+                        Ok(Ok(mgr)) => {
+                            tracing::info!("Redis connected");
+                            Some(tokio::sync::Mutex::new(mgr))
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!(error = %e, "Redis connection failed — running without cache");
+                            None
+                        }
+                        Err(_) => {
+                            tracing::warn!("Redis connection timed out (5s) — running without cache");
+                            None
+                        }
                     }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Redis connection failed — running without cache");
-                        None
-                    }
-                },
+                }
                 Err(e) => {
                     tracing::warn!(error = %e, "Redis client creation failed — running without cache");
                     None
