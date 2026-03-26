@@ -72,6 +72,20 @@ pub enum GameEventType {
     BlockComplete = 5,
 }
 
+impl GameEventType {
+    /// Deserialize from a u8 tag byte. Returns `None` for unknown tags.
+    pub fn from_u8(byte: u8) -> Option<Self> {
+        match byte {
+            1 => Some(Self::TxCommit),
+            2 => Some(Self::Conflict),
+            3 => Some(Self::ReExecution),
+            4 => Some(Self::ReExecutionResolved),
+            5 => Some(Self::BlockComplete),
+            _ => None,
+        }
+    }
+}
+
 impl Serialize for GameEventType {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u8(*self as u8)
@@ -96,6 +110,59 @@ pub struct GameEvent {
     pub slot: u8,
     /// Relative timestamp in seconds from simulation start.
     pub timestamp: f64,
+}
+
+/// Size of a single GameEvent in the binary wire format.
+pub const GAME_EVENT_BYTES: usize = 14;
+
+impl GameEvent {
+    /// Serialize to a 14-byte big-endian buffer matching the JS DataView decode layout.
+    ///
+    /// Layout:
+    /// - [0]:    event_type as u8
+    /// - [1]:    lane as u8
+    /// - [2..4]: tx_index as u16 big-endian
+    /// - [4]:    note as u8
+    /// - [5]:    slot as u8
+    /// - [6..14]: timestamp as f64 big-endian
+    pub fn to_bytes(&self) -> [u8; GAME_EVENT_BYTES] {
+        let mut buf = [0u8; GAME_EVENT_BYTES];
+        buf[0] = self.event_type as u8;
+        buf[1] = self.lane;
+        let tx_be = self.tx_index.to_be_bytes();
+        buf[2] = tx_be[0];
+        buf[3] = tx_be[1];
+        buf[4] = self.note;
+        buf[5] = self.slot;
+        let ts_be = self.timestamp.to_be_bytes();
+        buf[6..14].copy_from_slice(&ts_be);
+        buf
+    }
+
+    /// Deserialize from a 14-byte big-endian buffer.
+    ///
+    /// Returns `None` if the buffer is too short or the event type byte is invalid.
+    pub fn from_bytes(buf: &[u8]) -> Option<Self> {
+        if buf.len() < GAME_EVENT_BYTES {
+            return None;
+        }
+        let event_type = GameEventType::from_u8(buf[0])?;
+        let lane = buf[1];
+        let tx_index = u16::from_be_bytes([buf[2], buf[3]]);
+        let note = buf[4];
+        let slot = buf[5];
+        let timestamp = f64::from_be_bytes([
+            buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13],
+        ]);
+        Some(Self {
+            event_type,
+            lane,
+            tx_index,
+            note,
+            slot,
+            timestamp,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -650,5 +717,145 @@ mod tests {
             .filter(|e| e.event_type == GameEventType::Conflict)
             .collect();
         assert_eq!(conflict_events.len(), 2, "two distinct conflict pairs → two events");
+    }
+
+    // --- Binary serialization tests ---
+
+    #[test]
+    fn test_binary_round_trip_all_event_types() {
+        // Round-trip through to_bytes → from_bytes for every event type
+        let types = [
+            GameEventType::TxCommit,
+            GameEventType::Conflict,
+            GameEventType::ReExecution,
+            GameEventType::ReExecutionResolved,
+            GameEventType::BlockComplete,
+        ];
+        for (i, &etype) in types.iter().enumerate() {
+            let event = GameEvent {
+                event_type: etype,
+                lane: (i as u8) % 4,
+                tx_index: (i as u16) * 100 + 7,
+                note: 60 + i as u8,
+                slot: i as u8,
+                timestamp: 0.020 * (i as f64),
+            };
+            let bytes = event.to_bytes();
+            assert_eq!(bytes.len(), GAME_EVENT_BYTES);
+            let decoded = GameEvent::from_bytes(&bytes).expect("round-trip decode failed");
+            assert_eq!(decoded, event, "round-trip mismatch for {:?}", etype);
+        }
+    }
+
+    #[test]
+    fn test_binary_byte_level_js_compatibility() {
+        // Known event → to_bytes → verify exact byte positions match JS DataView reads:
+        //   view.getUint8(0)   = type
+        //   view.getUint8(1)   = lane
+        //   view.getUint16(2)  = txIndex (big-endian)
+        //   view.getUint8(4)   = note
+        //   view.getUint8(5)   = slot
+        //   view.getFloat64(6) = timestamp (big-endian)
+        let event = GameEvent {
+            event_type: GameEventType::Conflict, // type = 2
+            lane: 3,
+            tx_index: 258, // 0x0102 → big-endian [0x01, 0x02]
+            note: 65,
+            slot: 7,
+            timestamp: 0.040,
+        };
+        let bytes = event.to_bytes();
+
+        // offset 0: type
+        assert_eq!(bytes[0], 2, "type byte");
+        // offset 1: lane
+        assert_eq!(bytes[1], 3, "lane byte");
+        // offset 2-3: tx_index big-endian
+        assert_eq!(bytes[2], 0x01, "tx_index high byte");
+        assert_eq!(bytes[3], 0x02, "tx_index low byte");
+        // offset 4: note
+        assert_eq!(bytes[4], 65, "note byte");
+        // offset 5: slot
+        assert_eq!(bytes[5], 7, "slot byte");
+        // offset 6-13: timestamp as f64 big-endian
+        let ts_bytes = (0.040_f64).to_be_bytes();
+        assert_eq!(&bytes[6..14], &ts_bytes, "timestamp big-endian f64");
+    }
+
+    #[test]
+    fn test_binary_edge_cases() {
+        // Max u16 tx_index
+        let max_tx = GameEvent {
+            event_type: GameEventType::TxCommit,
+            lane: 0,
+            tx_index: u16::MAX, // 65535
+            note: 127,          // max MIDI note
+            slot: 255,
+            timestamp: 0.0,     // zero timestamp
+        };
+        let bytes = max_tx.to_bytes();
+        let decoded = GameEvent::from_bytes(&bytes).unwrap();
+        assert_eq!(decoded.tx_index, 65535);
+        assert_eq!(decoded.note, 127);
+        assert_eq!(decoded.slot, 255);
+        assert_eq!(decoded.timestamp, 0.0);
+
+        // tx_index high-byte check: 65535 = 0xFF 0xFF
+        assert_eq!(bytes[2], 0xFF);
+        assert_eq!(bytes[3], 0xFF);
+
+        // Very large timestamp
+        let large_ts = GameEvent {
+            event_type: GameEventType::BlockComplete,
+            lane: 2,
+            tx_index: 0,
+            note: 67,
+            slot: 0,
+            timestamp: 999_999.999_999,
+        };
+        let decoded2 = GameEvent::from_bytes(&large_ts.to_bytes()).unwrap();
+        assert_eq!(decoded2.timestamp, 999_999.999_999);
+    }
+
+    #[test]
+    fn test_binary_invalid_type_byte() {
+        let mut bytes = [0u8; GAME_EVENT_BYTES];
+        // type byte 0 is not a valid GameEventType
+        bytes[0] = 0;
+        assert!(GameEvent::from_bytes(&bytes).is_none(), "type 0 should fail");
+
+        // type byte 6 is out of range
+        bytes[0] = 6;
+        assert!(GameEvent::from_bytes(&bytes).is_none(), "type 6 should fail");
+
+        // type byte 255
+        bytes[0] = 255;
+        assert!(GameEvent::from_bytes(&bytes).is_none(), "type 255 should fail");
+    }
+
+    #[test]
+    fn test_binary_buffer_too_short() {
+        // 13 bytes = one byte short
+        let short_buf = [1u8; 13];
+        assert!(GameEvent::from_bytes(&short_buf).is_none(), "13 bytes should fail");
+
+        // empty
+        assert!(GameEvent::from_bytes(&[]).is_none(), "empty buffer should fail");
+    }
+
+    #[test]
+    fn test_binary_game_event_bytes_constant() {
+        assert_eq!(GAME_EVENT_BYTES, 14, "wire format is exactly 14 bytes");
+    }
+
+    #[test]
+    fn test_binary_from_u8_all_variants() {
+        assert_eq!(GameEventType::from_u8(1), Some(GameEventType::TxCommit));
+        assert_eq!(GameEventType::from_u8(2), Some(GameEventType::Conflict));
+        assert_eq!(GameEventType::from_u8(3), Some(GameEventType::ReExecution));
+        assert_eq!(GameEventType::from_u8(4), Some(GameEventType::ReExecutionResolved));
+        assert_eq!(GameEventType::from_u8(5), Some(GameEventType::BlockComplete));
+        assert_eq!(GameEventType::from_u8(0), None);
+        assert_eq!(GameEventType::from_u8(6), None);
     }
 }
