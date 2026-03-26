@@ -40,10 +40,13 @@ async fn spawn_test_server() -> String {
     let state = Arc::new(api::AppState {
         start_time: Instant::now(),
         simulation_semaphore: Semaphore::new(4),
+        db: None,
+        redis: None,
     });
 
     let app = Router::new()
         .route("/api/simulate", routing::post(api::simulate))
+        .route("/api/simulations", routing::get(api::list_simulations))
         .route("/ws", routing::any(ws::ws_handler))
         .route("/health", routing::get(api::health))
         .layer(CorsLayer::permissive())

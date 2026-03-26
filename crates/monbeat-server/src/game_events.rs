@@ -22,7 +22,7 @@
 //! - Zero conflict events = clean parallel execution
 //! - Re-execution events proportional to incarnation counts
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
@@ -92,10 +92,18 @@ impl Serialize for GameEventType {
     }
 }
 
+impl<'de> serde::Deserialize<'de> for GameEventType {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let byte = u8::deserialize(deserializer)?;
+        Self::from_u8(byte)
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid GameEventType: {byte}")))
+    }
+}
+
 /// A single game event for the frontend rhythm-game + audio engine.
 ///
 /// Binary layout: 14 bytes total (type:1 + lane:1 + tx_index:2 + note:1 + slot:1 + timestamp:8).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameEvent {
     /// Event type discriminant.
     #[serde(rename = "type")]

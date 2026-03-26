@@ -35,6 +35,13 @@ tower-http = { version = "0.6", features = ["cors"] }
 serde = { workspace = true }
 serde_json = "1.0"
 
+# Persistence + caching
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "uuid"] }
+redis = { version = "0.27", features = ["tokio-comp", "aio", "connection-manager"] }
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
 # Utilities
 hex = "0.4"
 thiserror = { workspace = true }

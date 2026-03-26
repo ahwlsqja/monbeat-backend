@@ -1,10 +1,15 @@
 //! MonBeat simulation server binary.
 //!
 //! Starts an Axum HTTP server on PORT (default 3000) with:
-//! - POST /api/simulate — Full Solidity simulation pipeline
-//! - GET /health — Liveness probe with uptime
+//! - POST /api/simulate — Full Solidity simulation pipeline (with Redis cache + PG persist)
+//! - GET /api/simulations — Paginated simulation history from PostgreSQL
+//! - GET /health — Liveness probe with uptime and connection pool health
+//! - WebSocket /ws — Binary event streaming
 //! - CORS middleware (allow all origins for dev)
 //! - tracing subscriber for structured logging
+//!
+//! PostgreSQL and Redis are optional — the server degrades gracefully when
+//! DATABASE_URL / REDIS_URL are not set.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -30,13 +35,70 @@ async fn main() {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(3000);
 
+    // Optional PostgreSQL pool
+    let db = match std::env::var("DATABASE_URL") {
+        Ok(url) => {
+            match sqlx::postgres::PgPoolOptions::new()
+                .max_connections(10)
+                .connect(&url)
+                .await
+            {
+                Ok(pool) => {
+                    tracing::info!("PostgreSQL connected");
+                    // Run migrations if the table doesn't exist
+                    let _ = sqlx::query(include_str!("../migrations/001_create_simulations.sql"))
+                        .execute(&pool)
+                        .await;
+                    Some(pool)
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "PostgreSQL connection failed — running without persistence");
+                    None
+                }
+            }
+        }
+        Err(_) => {
+            tracing::info!("DATABASE_URL not set — running without persistence");
+            None
+        }
+    };
+
+    // Optional Redis connection
+    let redis = match std::env::var("REDIS_URL") {
+        Ok(url) => {
+            match redis::Client::open(url.as_str()) {
+                Ok(client) => match redis::aio::ConnectionManager::new(client).await {
+                    Ok(mgr) => {
+                        tracing::info!("Redis connected");
+                        Some(tokio::sync::Mutex::new(mgr))
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Redis connection failed — running without cache");
+                        None
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(error = %e, "Redis client creation failed — running without cache");
+                    None
+                }
+            }
+        }
+        Err(_) => {
+            tracing::info!("REDIS_URL not set — running without cache");
+            None
+        }
+    };
+
     let state = Arc::new(api::AppState {
         start_time: Instant::now(),
         simulation_semaphore: tokio::sync::Semaphore::new(4),
+        db,
+        redis,
     });
 
     let app = Router::new()
         .route("/api/simulate", routing::post(api::simulate))
+        .route("/api/simulations", routing::get(api::list_simulations))
         .route("/ws", routing::any(ws::ws_handler))
         .route("/health", routing::get(api::health))
         .layer(CorsLayer::permissive())

@@ -27,10 +27,13 @@ async fn spawn_test_server() -> String {
     let state = Arc::new(api::AppState {
         start_time: Instant::now(),
         simulation_semaphore: tokio::sync::Semaphore::new(4),
+        db: None,
+        redis: None,
     });
 
     let app = Router::new()
         .route("/api/simulate", routing::post(api::simulate))
+        .route("/api/simulations", routing::get(api::list_simulations))
         .route("/ws", routing::any(ws::ws_handler))
         .route("/health", routing::get(api::health))
         .layer(CorsLayer::permissive())
@@ -49,7 +52,7 @@ async fn spawn_test_server() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1: Health endpoint
+// Test 1: Health endpoint (expanded with db/redis fields)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -68,6 +71,11 @@ async fn test_health_endpoint() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "ok");
     assert!(body["uptime_secs"].is_number());
+    // db/redis not connected in test mode
+    assert_eq!(body["db_connected"], false);
+    assert_eq!(body["redis_connected"], false);
+    assert_eq!(body["pool_size"], 0);
+    assert_eq!(body["pool_idle"], 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -134,11 +142,6 @@ contract Counter {
     assert!(has_tx_commit, "should have TxCommit events (type=1)");
     assert!(has_block_complete, "should have BlockComplete events (type=5)");
 
-    // Counter with 2 functions from different senders shouldn't have conflicts
-    // (increment from sender E2, decrement from sender E3 — different slots within same contract
-    // but Counter only has one slot. However, they may still conflict on the single `count` slot
-    // through read-write patterns. The key assertion is that gameEvents has correct structure.)
-    
     // Stats should have positive gas
     assert!(body["stats"]["total_gas"].as_u64().unwrap() > 0);
     assert!(body["stats"]["num_transactions"].as_u64().unwrap() >= 3);
@@ -301,4 +304,110 @@ async fn test_cors_headers() {
     // CorsLayer::permissive() adds access-control-allow-origin: *
     let cors_header = resp.headers().get("access-control-allow-origin");
     assert!(cors_header.is_some(), "CORS header should be present");
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: GET /api/simulations returns empty list when no DB
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_simulations_empty_no_db() {
+    let base_url = spawn_test_server().await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{base_url}/api/simulations"))
+        .send()
+        .await
+        .expect("simulations request failed");
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["simulations"].as_array().unwrap().len(), 0);
+    assert_eq!(body["total"], 0);
+    assert_eq!(body["message"], "database not connected");
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: SimulateResponse Deserialize round-trip
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_simulate_response_deserialize_roundtrip() {
+    use monbeat_server::api::{
+        ConflictDetailsOutput, ConflictPairOutput, ExecutionStats, SimulateResponse,
+        TxResultOutput,
+    };
+    use monbeat_server::game_events::{GameEvent, GameEventType};
+
+    let response = SimulateResponse {
+        results: vec![TxResultOutput {
+            success: true,
+            gas_used: 21000,
+            output: "0x".to_string(),
+            error: None,
+            logs_count: 0,
+        }],
+        incarnations: vec![0],
+        stats: ExecutionStats {
+            total_gas: 21000,
+            num_transactions: 1,
+            num_conflicts: 0,
+            num_re_executions: 0,
+        },
+        conflict_details: ConflictDetailsOutput {
+            conflicts: vec![ConflictPairOutput {
+                tx_a: 0,
+                tx_b: 1,
+                location_type: "Storage".to_string(),
+                conflict_type: "write-write".to_string(),
+            }],
+        },
+        game_events: vec![GameEvent {
+            event_type: GameEventType::TxCommit,
+            lane: 0,
+            tx_index: 0,
+            note: 60,
+            slot: 0,
+            timestamp: 0.0,
+        }],
+    };
+
+    let json_str = serde_json::to_string(&response).unwrap();
+    let deserialized: SimulateResponse = serde_json::from_str(&json_str).unwrap();
+
+    assert_eq!(deserialized.results.len(), 1);
+    assert_eq!(deserialized.results[0].success, true);
+    assert_eq!(deserialized.results[0].gas_used, 21000);
+    assert_eq!(deserialized.stats.total_gas, 21000);
+    assert_eq!(deserialized.conflict_details.conflicts.len(), 1);
+    assert_eq!(deserialized.game_events.len(), 1);
+    assert_eq!(deserialized.game_events[0].event_type, GameEventType::TxCommit);
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: Health endpoint returns expanded fields
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_health_expanded_fields() {
+    let base_url = spawn_test_server().await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{base_url}/health"))
+        .send()
+        .await
+        .expect("health request failed");
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    // Verify all expected fields exist
+    assert!(body.get("status").is_some(), "missing status field");
+    assert!(body.get("uptime_secs").is_some(), "missing uptime_secs field");
+    assert!(body.get("db_connected").is_some(), "missing db_connected field");
+    assert!(body.get("redis_connected").is_some(), "missing redis_connected field");
+    assert!(body.get("pool_size").is_some(), "missing pool_size field");
+    assert!(body.get("pool_idle").is_some(), "missing pool_idle field");
 }
