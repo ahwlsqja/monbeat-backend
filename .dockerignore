@@ -1,0 +1,24 @@
+# Build artifacts
+target/
+
+# Version control
+.git/
+.gitignore
+
+# GSD project management
+.gsd/
+
+# Non-essential directories
+vibe-room-monad-fork/
+test-vectors/
+docs/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+Dockerfile
+.dockerignore
