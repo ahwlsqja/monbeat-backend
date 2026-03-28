@@ -1,6 +1,5 @@
-# === Stage 1: C++ Engine Build (from monad fork) ===
-# Pre-built image with monad-vibe-cli binary
-FROM monad-vibe-cli:latest AS cpp-engine
+# === Stage 1: C++ Engine Build (from Docker Hub) ===
+FROM ahwlsqja/monad-vibe-cli:latest AS cpp-engine
 
 # === Stage 2: Rust Builder ===
 FROM rust:1.94-slim-bookworm AS rust-builder
