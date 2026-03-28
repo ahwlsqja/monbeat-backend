@@ -388,21 +388,38 @@ pub async fn run_simulation(source: &str, repeat_count: Option<u32>) -> Result<S
         });
     }
 
-    // 5. Convert conflict details for game event mapper
-    let conflict_inputs: Vec<ConflictInput> = engine_output
+    // 5. Filter coinbase-only conflicts (EVM-inherent, not user-actionable)
+    // All TXs read/write coinbase for gas fees — this inflates conflict count.
+    let coinbase_addr = format!("{:#x}", build_result.block_env.coinbase);
+    
+    // Determine which TX pairs have non-coinbase conflicts using per_tx R/W sets
+    let filtered_conflicts: Vec<&engine::EngineConflict> = engine_output
         .conflict_details
         .conflicts
+        .iter()
+        .filter(|c| {
+            // Keep conflict if either TX has non-coinbase storage R/W
+            let has_storage = |tx_idx: usize| -> bool {
+                engine_output.conflict_details.per_tx.get(tx_idx).map_or(false, |pt| {
+                    pt.reads.iter().chain(pt.writes.iter()).any(|rw| {
+                        rw.address != coinbase_addr && rw.location_type == "StorageSlot"
+                    })
+                })
+            };
+            has_storage(c.tx_a) || has_storage(c.tx_b)
+        })
+        .collect();
+
+    let conflict_inputs: Vec<ConflictInput> = filtered_conflicts
         .iter()
         .map(|c| ConflictInput {
             tx_a: c.tx_a,
             tx_b: c.tx_b,
-            slot_byte: 0, // C++ engine doesn't provide slot byte detail
+            slot_byte: 0,
         })
         .collect();
 
-    let conflict_outputs: Vec<ConflictPairOutput> = engine_output
-        .conflict_details
-        .conflicts
+    let conflict_outputs: Vec<ConflictPairOutput> = filtered_conflicts
         .iter()
         .map(|c| ConflictPairOutput {
             tx_a: c.tx_a,
@@ -412,28 +429,47 @@ pub async fn run_simulation(source: &str, repeat_count: Option<u32>) -> Result<S
         })
         .collect();
 
-    // 6. Map to game events
+    // Recompute conflict stats excluding coinbase-only conflicts
+    let mut real_conflict_txs = std::collections::HashSet::new();
+    for c in &filtered_conflicts {
+        real_conflict_txs.insert(c.tx_a);
+        real_conflict_txs.insert(c.tx_b);
+    }
+    let num_conflicts = real_conflict_txs.len();
+    let num_re_executions = engine_output.incarnations.iter()
+        .enumerate()
+        .filter(|(i, &inc)| inc > 0 && real_conflict_txs.contains(i))
+        .map(|(_, &inc)| inc as usize)
+        .sum::<usize>();
+
+    // Filter incarnations: zero out coinbase-only retries
+    let filtered_incarnations: Vec<u32> = engine_output.incarnations.iter()
+        .enumerate()
+        .map(|(i, &inc)| if real_conflict_txs.contains(&i) { inc } else { 0 })
+        .collect();
+
+    // 6. Map to game events (using filtered incarnations)
     let game_events = GameEventMapper::map_to_events(
         &mapper_tx_results,
-        &engine_output.incarnations,
+        &filtered_incarnations,
         &conflict_inputs,
     );
 
     tracing::info!(
         events = game_events.len(),
-        conflicts = engine_output.stats.num_conflicts,
-        re_executions = engine_output.stats.num_re_executions,
-        "simulation complete (C++ engine)"
+        conflicts = num_conflicts,
+        re_executions = num_re_executions,
+        "simulation complete (C++ engine, coinbase conflicts filtered)"
     );
 
     let response = SimulateResponse {
         results: tx_result_outputs,
-        incarnations: engine_output.incarnations,
+        incarnations: filtered_incarnations,
         stats: ExecutionStats {
             total_gas: engine_output.stats.total_gas,
             num_transactions: num_txs,
-            num_conflicts: engine_output.stats.num_conflicts as usize,
-            num_re_executions: engine_output.stats.num_re_executions as usize,
+            num_conflicts,
+            num_re_executions,
         },
         conflict_details: ConflictDetailsOutput {
             conflicts: conflict_outputs,

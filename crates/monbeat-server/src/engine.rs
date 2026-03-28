@@ -92,9 +92,25 @@ pub struct EngineStats {
 #[derive(Debug, Deserialize)]
 pub struct EngineConflictDetails {
     #[serde(default)]
-    pub per_tx: Vec<serde_json::Value>,
+    pub per_tx: Vec<EnginePerTx>,
     #[serde(default)]
     pub conflicts: Vec<EngineConflict>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EnginePerTx {
+    #[serde(default)]
+    pub incarnation_count: u32,
+    #[serde(default)]
+    pub reads: Vec<EngineRWEntry>,
+    #[serde(default)]
+    pub writes: Vec<EngineRWEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EngineRWEntry {
+    pub address: String,
+    pub location_type: String,
 }
 
 #[derive(Debug, Deserialize)]
