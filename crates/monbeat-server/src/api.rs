@@ -188,12 +188,13 @@ pub async fn simulate(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SimulateRequest>,
 ) -> Result<Json<SimulateResponse>, (StatusCode, Json<ErrorBody>)> {
-    // Compute content hash for cache key
+    // Compute content hash for cache key (includes repeat_count to avoid serving stale results)
+    let rc_tag = req.repeat_count.map_or("auto".to_string(), |n| n.to_string());
     let source_hash = hex::encode(Sha256::digest(req.source.as_bytes()));
 
     // 1. Check Redis cache
     if let Some(redis_mtx) = &state.redis {
-        let cache_key = format!("sim:{source_hash}");
+        let cache_key = format!("sim:{source_hash}:rc:{rc_tag}");
         let cached: Result<Option<String>, redis::RedisError> = {
             let mut conn = redis_mtx.lock().await;
             redis::cmd("GET")
@@ -214,7 +215,7 @@ pub async fn simulate(
 
     // 3. Cache in Redis (fire-and-forget, don't fail on error)
     if let Some(redis_mtx) = &state.redis {
-        let cache_key = format!("sim:{source_hash}");
+        let cache_key = format!("sim:{source_hash}:rc:{rc_tag}");
         if let Ok(json_str) = serde_json::to_string(&result.response) {
             let mut conn = redis_mtx.lock().await;
             let _: Result<(), redis::RedisError> = redis::cmd("SET")
