@@ -113,6 +113,8 @@ pub struct SimulateResponse {
 pub struct HealthResponse {
     pub status: String,
     pub uptime_secs: u64,
+    pub engine_type: String,
+    pub engine_available: bool,
     pub db_connected: bool,
     pub redis_connected: bool,
     pub pool_size: u32,
@@ -169,6 +171,8 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> 
     Json(HealthResponse {
         status: "ok".to_string(),
         uptime_secs: state.start_time.elapsed().as_secs(),
+        engine_type: "cpp-monad-vibe-cli".to_string(),
+        engine_available: engine::is_available(),
         db_connected,
         redis_connected,
         pool_size,

@@ -1,5 +1,9 @@
-# === Stage 1: Builder ===
-FROM rust:1.94-slim-bookworm AS builder
+# === Stage 1: C++ Engine Build (from monad fork) ===
+# Pre-built image with monad-vibe-cli binary
+FROM monad-vibe-cli:latest AS cpp-engine
+
+# === Stage 2: Rust Builder ===
+FROM rust:1.94-slim-bookworm AS rust-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev ca-certificates \
@@ -24,7 +28,6 @@ RUN for crate_dir in types state evm precompiles nine-fork mv-state scheduler cl
       mkdir -p "crates/${crate_dir}/src" && \
       echo "" > "crates/${crate_dir}/src/lib.rs"; \
     done && \
-    # monbeat-server has a binary target too
     echo "fn main() {}" > crates/monbeat-server/src/main.rs
 
 # Pre-fetch and compile dependencies (cached unless Cargo.toml changes)
@@ -39,11 +42,23 @@ RUN find crates/ -name "*.rs" -exec touch {} +
 # Build the actual binary
 RUN cargo build --release -p monbeat-server
 
-# === Stage 2: Runtime ===
-FROM debian:bookworm-slim
+# === Stage 3: Runtime ===
+# Use Ubuntu 25.10 to match C++ engine's shared library requirements
+FROM ubuntu:25.10
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 wget \
+    ca-certificates libssl3t64 wget \
+    # C++ engine shared libs (must match monad-vibe-cli build)
+    libboost-fiber1.83.0 \
+    libboost-json1.83.0 \
+    libboost-stacktrace1.83.0 \
+    libtbb12 \
+    libzstd1 \
+    libgmp10 \
+    liburing2 \
+    libbrotli1 \
+    libcrypto++8 \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install solc 0.8.28 static binary
@@ -52,10 +67,13 @@ RUN wget -q -O /usr/local/bin/solc \
     && chmod +x /usr/local/bin/solc \
     && solc --version
 
-# Copy the compiled binary from builder
-COPY --from=builder /app/target/release/monbeat-server /usr/local/bin/monbeat-server
+# Copy C++ engine binary from pre-built image
+COPY --from=cpp-engine /usr/local/bin/monad-vibe-cli /usr/local/bin/monad-vibe-cli
 
-# Copy migrations (used at runtime via include_str! — already embedded, but kept for reference)
+# Copy Rust server binary from builder
+COPY --from=rust-builder /app/target/release/monbeat-server /usr/local/bin/monbeat-server
+
+# Copy migrations
 COPY crates/monbeat-server/migrations/ /app/migrations/
 
 ENV PORT=8080
