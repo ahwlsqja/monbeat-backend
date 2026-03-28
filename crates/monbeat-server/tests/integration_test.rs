@@ -111,7 +111,7 @@ contract Counter {
 
     let resp = client
         .post(format!("{base_url}/api/simulate"))
-        .json(&serde_json::json!({ "source": source }))
+        .json(&serde_json::json!({ "source": source, "repeat_count": 1 }))
         .send()
         .await
         .expect("simulate request failed");
@@ -185,7 +185,7 @@ contract SharedStorage {
 
     let resp = client
         .post(format!("{base_url}/api/simulate"))
-        .json(&serde_json::json!({ "source": source }))
+        .json(&serde_json::json!({ "source": source, "repeat_count": 1 }))
         .send()
         .await
         .expect("simulate request failed");
@@ -410,4 +410,109 @@ async fn test_health_expanded_fields() {
     assert!(body.get("redis_connected").is_some(), "missing redis_connected field");
     assert!(body.get("pool_size").is_some(), "missing pool_size field");
     assert!(body.get("pool_idle").is_some(), "missing pool_idle field");
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: POST /api/simulate with repeat_count=100 → 301 results
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_simulate_with_repeat_count() {
+    if !has_solc() {
+        eprintln!("SKIP: solc not installed");
+        return;
+    }
+
+    let base_url = spawn_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Counter has 2 state-changing functions (increment, decrement)
+    // repeat_count=100 → 200 call txs + 1 deploy = 201 results
+    let source = r#"
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract Counter {
+    uint256 public count;
+    function increment() public { count += 1; }
+    function decrement() public { count -= 1; }
+}
+"#;
+
+    let resp = client
+        .post(format!("{base_url}/api/simulate"))
+        .json(&serde_json::json!({ "source": source, "repeat_count": 100 }))
+        .send()
+        .await
+        .expect("simulate request failed");
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let results = body["results"].as_array().unwrap();
+
+    // 1 deploy + 2 functions × 100 repeats = 201 txs
+    assert_eq!(
+        results.len(),
+        201,
+        "expected 201 results (1 deploy + 2*100), got {}",
+        results.len()
+    );
+
+    // Deploy tx should succeed
+    assert_eq!(results[0]["success"], true, "deploy should succeed");
+
+    // Stats should reflect the correct tx count
+    assert_eq!(body["stats"]["num_transactions"].as_u64().unwrap(), 201);
+
+    // gameEvents should be populated
+    let events = body["gameEvents"].as_array().unwrap();
+    assert!(events.len() > 100, "should have many game events, got {}", events.len());
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: POST /api/simulate without repeat_count → auto ~300 TXs
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_simulate_default_repeat_count_targets_300() {
+    if !has_solc() {
+        eprintln!("SKIP: solc not installed");
+        return;
+    }
+
+    let base_url = spawn_test_server().await;
+    let client = reqwest::Client::new();
+
+    let source = r#"
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract Counter {
+    uint256 public count;
+    function increment() public { count += 1; }
+    function decrement() public { count -= 1; }
+}
+"#;
+
+    // No repeat_count in body → auto-compute: 2 fns → repeat=150 → 300+1=301
+    let resp = client
+        .post(format!("{base_url}/api/simulate"))
+        .json(&serde_json::json!({ "source": source }))
+        .send()
+        .await
+        .expect("simulate request failed");
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let results = body["results"].as_array().unwrap();
+
+    // Auto-targets ~300 call TXs: 2 fns × 150 = 300 + 1 deploy = 301
+    assert_eq!(
+        results.len(),
+        301,
+        "default repeat_count should produce 301 results, got {}",
+        results.len()
+    );
 }

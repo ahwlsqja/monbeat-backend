@@ -51,6 +51,9 @@ use crate::api::AppState;
 struct ClientMessage {
     action: String,
     source: Option<String>,
+    /// How many times each state-changing function is called.
+    /// `None` → auto-compute to target ~300 TXs.
+    repeat_count: Option<u32>,
 }
 
 /// Completion frame sent after all binary events have been streamed.
@@ -174,7 +177,7 @@ async fn handle_text_message(
     };
 
     // Run the simulation pipeline.
-    let result = match crate::api::run_simulation(source).await {
+    let result = match crate::api::run_simulation(source, parsed.repeat_count).await {
         Ok(r) => r,
         Err((_status, json_body)) => {
             let err_json = serde_json::json!({"error": json_body.0.error});

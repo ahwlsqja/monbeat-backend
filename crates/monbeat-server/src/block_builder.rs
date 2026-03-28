@@ -203,11 +203,28 @@ fn default_abi_word(ty: &str, sender: Address) -> [u8; 32] {
     word
 }
 
+/// Compute a default repeat_count that targets ~300 total TXs.
+///
+/// Given `n` state-changing functions, returns `ceil(300 / n)` so the
+/// block contains at least 300 call TXs (plus 1 deploy TX).
+/// Clamps to a minimum of 1 and maximum of 1000.
+pub fn default_repeat_count(state_changing_fn_count: usize) -> u32 {
+    if state_changing_fn_count == 0 {
+        return 1;
+    }
+    let target = 300u32;
+    let count = (target + state_changing_fn_count as u32 - 1) / state_changing_fn_count as u32;
+    count.clamp(1, 1000)
+}
+
 /// Build a transaction block from a compiled contract.
 ///
 /// Creates:
 /// - tx[0]: Deploy the contract (sender = DEPLOYER, nonce = 0)
-/// - tx[1..N]: Call each state-changing function with rotating senders
+/// - tx[1..N]: Call each state-changing function `repeat_count` times
+///   with rotating senders
+///
+/// If `repeat_count` is `None`, auto-computes a value targeting ~300 TXs.
 ///
 /// State-changing functions are those with mutability `NonPayable` or `Payable`
 /// (i.e., not `Pure` or `View`).
@@ -217,7 +234,7 @@ fn default_abi_word(ty: &str, sender: Address) -> [u8; 32] {
 /// Returns `BuildError::AbiParse` if the ABI JSON is malformed, or
 /// `BuildError::NoStateChangingFunctions` if the contract has no callable
 /// state-changing functions.
-pub fn build(compile_result: &CompileResult) -> Result<BuildResult, BuildError> {
+pub fn build(compile_result: &CompileResult, repeat_count: Option<u32>) -> Result<BuildResult, BuildError> {
     // Parse ABI
     let abi: JsonAbi = serde_json::from_str(&compile_result.abi_json)
         .map_err(|e| BuildError::AbiParse(format!("{e}")))?;
@@ -241,7 +258,12 @@ pub fn build(compile_result: &CompileResult) -> Result<BuildResult, BuildError> 
         return Err(BuildError::NoStateChangingFunctions);
     }
 
-    let mut transactions = Vec::new();
+    // Resolve repeat_count: use provided value, or auto-compute to target ~300 TXs.
+    let repeats = repeat_count
+        .unwrap_or_else(|| default_repeat_count(state_changing_fns.len()));
+
+    let estimated_txs = 1 + state_changing_fns.len() * repeats as usize;
+    let mut transactions = Vec::with_capacity(estimated_txs);
     let mut tx_function_map = HashMap::new();
 
     // tx[0]: Deploy transaction
@@ -259,32 +281,34 @@ pub fn build(compile_result: &CompileResult) -> Result<BuildResult, BuildError> 
     // Compute deployed contract address (DEPLOYER nonce=0)
     let contract_addr = compute_create_address(DEPLOYER, 0);
 
-    // tx[1..N]: Call each state-changing function with rotating senders
+    // tx[1..N]: Call each state-changing function `repeats` times with rotating senders
     let mut sender_idx = 1usize; // Start from sender[1] for calls (sender[0] = deployer)
     let mut nonce_map: HashMap<Address, u64> = HashMap::new();
     // Deployer already used nonce 0 for deploy
     nonce_map.insert(DEPLOYER, 1);
 
-    for func in &state_changing_fns {
-        let sender = SENDER_ADDRESSES[sender_idx % SENDER_ADDRESSES.len()];
-        let nonce = nonce_map.entry(sender).or_insert(0);
+    for _round in 0..repeats {
+        for func in &state_changing_fns {
+            let sender = SENDER_ADDRESSES[sender_idx % SENDER_ADDRESSES.len()];
+            let nonce = nonce_map.entry(sender).or_insert(0);
 
-        if let Some(calldata) = encode_function_call(func, sender) {
-            let tx_idx = transactions.len();
-            transactions.push(Transaction {
-                sender,
-                to: Some(contract_addr),
-                value: U256::ZERO,
-                data: Bytes::from(calldata),
-                gas_limit: GAS_LIMIT,
-                nonce: *nonce,
-                gas_price: default_gas_price(),
-            });
-            tx_function_map.insert(tx_idx, func.name.clone());
-            *nonce += 1;
+            if let Some(calldata) = encode_function_call(func, sender) {
+                let tx_idx = transactions.len();
+                transactions.push(Transaction {
+                    sender,
+                    to: Some(contract_addr),
+                    value: U256::ZERO,
+                    data: Bytes::from(calldata),
+                    gas_limit: GAS_LIMIT,
+                    nonce: *nonce,
+                    gas_price: default_gas_price(),
+                });
+                tx_function_map.insert(tx_idx, func.name.clone());
+                *nonce += 1;
+            }
+
+            sender_idx += 1;
         }
-
-        sender_idx += 1;
     }
 
     let block_env = BlockEnv {
@@ -385,7 +409,7 @@ contract Counter {
 }
 "#;
         let compile_result = crate::compiler::compile(source).expect("compilation should succeed");
-        let build_result = build(&compile_result).expect("build should succeed");
+        let build_result = build(&compile_result, Some(1)).expect("build should succeed");
 
         // tx[0] = deploy (no `to` address)
         assert!(build_result.transactions[0].to.is_none(), "tx[0] should be deploy");
@@ -434,7 +458,7 @@ contract Counter {
             storage_layout: r#"{"storage":[],"types":{}}"#.to_string(),
         };
 
-        let result = build(&compile_result);
+        let result = build(&compile_result, Some(1));
         assert!(result.is_err());
         match result.unwrap_err() {
             BuildError::NoStateChangingFunctions => {}
@@ -455,10 +479,128 @@ pragma solidity ^0.8.0;
 contract Simple { function set() public {} }
 "#;
         let compile_result = crate::compiler::compile(source).expect("compile");
-        let build_result = build(&compile_result).expect("build");
+        let build_result = build(&compile_result, Some(1)).expect("build");
 
         assert_eq!(build_result.block_env.number, 1);
         assert_eq!(build_result.block_env.gas_limit, 30_000_000);
         assert_eq!(build_result.block_env.coinbase, Address::with_last_byte(0xFF));
+    }
+
+    #[test]
+    fn test_default_repeat_count() {
+        // 2 functions → ceil(300/2) = 150
+        assert_eq!(default_repeat_count(2), 150);
+        // 3 functions → ceil(300/3) = 100
+        assert_eq!(default_repeat_count(3), 100);
+        // 1 function → 300
+        assert_eq!(default_repeat_count(1), 300);
+        // 0 functions → 1 (edge case)
+        assert_eq!(default_repeat_count(0), 1);
+        // 600 functions → ceil(300/600) = 1
+        assert_eq!(default_repeat_count(600), 1);
+    }
+
+    #[test]
+    fn test_build_with_repeat_count() {
+        if !has_solc() {
+            eprintln!("SKIP: solc not installed");
+            return;
+        }
+
+        let source = r#"
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract Counter {
+    uint256 public count;
+    function increment() public { count += 1; }
+    function decrement() public { count -= 1; }
+}
+"#;
+        let compile_result = crate::compiler::compile(source).expect("compile");
+
+        // repeat_count=5 → 2 functions × 5 repeats = 10 call txs + 1 deploy = 11 total
+        let result = build(&compile_result, Some(5)).expect("build");
+        assert_eq!(result.transactions.len(), 11, "1 deploy + 2*5 = 11 txs");
+        assert!(result.transactions[0].to.is_none(), "tx[0] is deploy");
+        for tx in &result.transactions[1..] {
+            assert!(tx.to.is_some(), "call txs should have target address");
+        }
+
+        // All call txs should have valid function names in the map
+        for i in 1..result.transactions.len() {
+            let name = result.tx_function_map.get(&i).expect("missing tx_function_map entry");
+            assert!(
+                name == "increment" || name == "decrement",
+                "unexpected function name: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_with_none_repeat_count_auto_computes() {
+        if !has_solc() {
+            eprintln!("SKIP: solc not installed");
+            return;
+        }
+
+        let source = r#"
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract Counter {
+    uint256 public count;
+    function increment() public { count += 1; }
+    function decrement() public { count -= 1; }
+}
+"#;
+        let compile_result = crate::compiler::compile(source).expect("compile");
+
+        // None → auto-compute: 2 functions → repeat=150 → 300 call txs + 1 deploy = 301
+        let result = build(&compile_result, None).expect("build");
+        assert_eq!(
+            result.transactions.len(),
+            301,
+            "auto repeat_count for 2 fns should produce 301 txs"
+        );
+    }
+
+    #[test]
+    fn test_build_nonce_correctness_with_repeat() {
+        if !has_solc() {
+            eprintln!("SKIP: solc not installed");
+            return;
+        }
+
+        let source = r#"
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+contract Simple { function set() public {} }
+"#;
+        let compile_result = crate::compiler::compile(source).expect("compile");
+
+        // 1 function × 10 repeats = 10 call txs + 1 deploy
+        let result = build(&compile_result, Some(10)).expect("build");
+        assert_eq!(result.transactions.len(), 11);
+
+        // Verify nonces are sequential per sender.
+        // DEPLOYER (0xE1) starts at nonce=1 because nonce=0 was used for deploy.
+        // Other senders start at nonce=0.
+        let mut nonce_check: HashMap<Address, Vec<u64>> = HashMap::new();
+        // Skip deploy tx (index 0)
+        for tx in &result.transactions[1..] {
+            nonce_check.entry(tx.sender).or_default().push(tx.nonce);
+        }
+        for (addr, nonces) in &nonce_check {
+            let base_nonce = if *addr == DEPLOYER { 1u64 } else { 0u64 };
+            for (i, &nonce) in nonces.iter().enumerate() {
+                assert_eq!(
+                    nonce,
+                    base_nonce + i as u64,
+                    "sender {addr}: nonce at position {i} should be {}, got {nonce}",
+                    base_nonce + i as u64
+                );
+            }
+        }
     }
 }

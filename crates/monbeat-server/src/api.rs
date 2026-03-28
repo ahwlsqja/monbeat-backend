@@ -65,6 +65,9 @@ pub struct AppState {
 pub struct SimulateRequest {
     /// Raw Solidity source code to compile and simulate.
     pub source: String,
+    /// How many times each state-changing function is called.
+    /// `None` → auto-compute to target ~300 TXs.
+    pub repeat_count: Option<u32>,
 }
 
 /// Per-transaction execution result in the response.
@@ -207,7 +210,7 @@ pub async fn simulate(
     }
 
     // 2. Run simulation
-    let result = run_simulation(&req.source).await?;
+    let result = run_simulation(&req.source, req.repeat_count).await?;
 
     // 3. Cache in Redis (fire-and-forget, don't fail on error)
     if let Some(redis_mtx) = &state.redis {
@@ -325,7 +328,8 @@ pub struct SimulationResult {
 /// compile → build block → parallel execute → conflict detect → map game events.
 ///
 /// Shared between the REST handler and the WebSocket handler.
-pub async fn run_simulation(source: &str) -> Result<SimulationResult, (StatusCode, Json<ErrorBody>)> {
+/// `repeat_count`: `None` auto-targets ~300 TXs; `Some(n)` repeats each function n times.
+pub async fn run_simulation(source: &str, repeat_count: Option<u32>) -> Result<SimulationResult, (StatusCode, Json<ErrorBody>)> {
     // 1. Compile
     let compile_result = compiler::compile(source).map_err(|e| {
         tracing::warn!(error = %e, "compilation failed");
@@ -344,7 +348,7 @@ pub async fn run_simulation(source: &str) -> Result<SimulationResult, (StatusCod
     );
 
     // 2. Build transaction block
-    let build_result = block_builder::build(&compile_result).map_err(|e| {
+    let build_result = block_builder::build(&compile_result, repeat_count).map_err(|e| {
         tracing::warn!(error = %e, "block build failed");
         (
             StatusCode::BAD_REQUEST,

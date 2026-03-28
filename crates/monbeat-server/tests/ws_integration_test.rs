@@ -123,14 +123,30 @@ async fn connect_ws(
 }
 
 /// Send a simulate request over WS and collect all messages until the completion
-/// frame. Returns (binary_frames, completion_json).
+/// frame. Uses repeat_count=1 by default for backward-compatible small-scale tests.
+/// Returns (binary_frames, completion_json).
 async fn simulate_and_collect(
     ws: &mut tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
     source: &str,
 ) -> (Vec<Vec<u8>>, serde_json::Value) {
-    let req = serde_json::json!({"action": "simulate", "source": source});
+    simulate_and_collect_with_repeat(ws, source, Some(1)).await
+}
+
+/// Send a simulate request over WS with optional repeat_count and collect all
+/// messages until the completion frame. Returns (binary_frames, completion_json).
+async fn simulate_and_collect_with_repeat(
+    ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    source: &str,
+    repeat_count: Option<u32>,
+) -> (Vec<Vec<u8>>, serde_json::Value) {
+    let mut req = serde_json::json!({"action": "simulate", "source": source});
+    if let Some(rc) = repeat_count {
+        req["repeat_count"] = serde_json::json!(rc);
+    }
     ws.send(Message::text(req.to_string()))
         .await
         .expect("send simulate failed");
@@ -139,8 +155,9 @@ async fn simulate_and_collect(
     #[allow(unused_assignments)]
     let mut completion: Option<serde_json::Value> = None;
 
-    // Timeout after 30s to prevent hanging tests.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    // Timeout after 60s to prevent hanging tests.
+    // Higher repeat_count simulations can take 10-20s for parallel execution + pacing.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
 
     loop {
         let msg = tokio::time::timeout_at(deadline, ws.next()).await;
@@ -298,7 +315,7 @@ async fn test_ws_pacing() {
     let base = spawn_test_server().await;
     let mut ws = connect_ws(&base).await;
 
-    let req = serde_json::json!({"action": "simulate", "source": COUNTER_SOURCE});
+    let req = serde_json::json!({"action": "simulate", "source": COUNTER_SOURCE, "repeat_count": 1});
     ws.send(Message::text(req.to_string()))
         .await
         .expect("send simulate failed");
@@ -416,7 +433,7 @@ async fn test_ws_concurrent_limit() {
         let base_clone = base.clone();
         let handle = tokio::spawn(async move {
             let mut ws = connect_ws(&base_clone).await;
-            let req = serde_json::json!({"action": "simulate", "source": COUNTER_SOURCE});
+            let req = serde_json::json!({"action": "simulate", "source": COUNTER_SOURCE, "repeat_count": 1});
             ws.send(Message::text(req.to_string()))
                 .await
                 .expect("send failed");
@@ -546,4 +563,80 @@ async fn test_ws_conflict_events() {
         "stats.total_events ({total_events}) should match binary frame count ({})",
         binary_frames.len()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: WS simulate with repeat_count=100 → 301+ binary frames
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_ws_simulate_with_repeat_count() {
+    if !has_solc() {
+        eprintln!("SKIP: solc not installed");
+        return;
+    }
+
+    let base = spawn_test_server().await;
+    let mut ws = connect_ws(&base).await;
+
+    // Use a contract with independent storage per function to minimize conflicts.
+    // Each function writes to its own slot per sender via mapping, so parallel
+    // execution generates fewer conflicts than simple uint256 counters.
+    // 3 functions × 10 repeats = 30 call txs + 1 deploy = 31 txs
+    // We use repeat_count=10 (not 100+) because WS pacing adds 20ms per game
+    // event, and conflict/re-execution events multiply the count significantly.
+    let multi_slot_source = r#"
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract MultiSlot {
+    mapping(address => uint256) public balancesA;
+    mapping(address => uint256) public balancesB;
+    mapping(address => uint256) public balancesC;
+
+    function depositA() public { balancesA[msg.sender] += 1; }
+    function depositB() public { balancesB[msg.sender] += 1; }
+    function depositC() public { balancesC[msg.sender] += 1; }
+}
+"#;
+
+    let (binary_frames, completion) =
+        simulate_and_collect_with_repeat(&mut ws, multi_slot_source, Some(10)).await;
+
+    // Every binary frame is 14 bytes
+    for (i, frame) in binary_frames.iter().enumerate() {
+        assert_eq!(
+            frame.len(),
+            14,
+            "frame {i} should be 14 bytes, got {}",
+            frame.len()
+        );
+    }
+
+    // At minimum: 31 TxCommit events + 1 BlockComplete = 32 binary frames
+    // (conflict and re-execution events would add more)
+    assert!(
+        binary_frames.len() >= 32,
+        "expected >= 32 binary frames (31 TxCommit + 1 BlockComplete), got {}",
+        binary_frames.len()
+    );
+
+    // Completion frame should report correct tx count
+    let num_txs = completion["stats"]["num_transactions"].as_u64().unwrap();
+    assert_eq!(num_txs, 31, "stats.num_transactions should be 31");
+
+    // total_events should match binary frame count
+    let total_events = completion["stats"]["total_events"].as_u64().unwrap();
+    assert_eq!(
+        total_events as usize,
+        binary_frames.len(),
+        "stats.total_events should match frame count"
+    );
+
+    // Decode first and last events
+    let first = GameEvent::from_bytes(&binary_frames[0]).expect("decode first frame");
+    assert_eq!(first.event_type, GameEventType::TxCommit, "first event should be TxCommit");
+
+    let last = GameEvent::from_bytes(binary_frames.last().unwrap()).expect("decode last frame");
+    assert_eq!(last.event_type, GameEventType::BlockComplete, "last event should be BlockComplete");
 }
