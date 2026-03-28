@@ -49,45 +49,31 @@ pub struct BuildResult {
     pub tx_function_map: HashMap<usize, String>,
 }
 
-/// The 8 rotating sender addresses used for call transactions.
-/// Matching the NestJS VibeScoreService pattern (0xE1..0xE8 range).
-const SENDER_ADDRESSES: [Address; 8] = [
-    Address::new([
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xE1,
-    ]),
-    Address::new([
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xE2,
-    ]),
-    Address::new([
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xE3,
-    ]),
-    Address::new([
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xE4,
-    ]),
-    Address::new([
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xE5,
-    ]),
-    Address::new([
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xE6,
-    ]),
-    Address::new([
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xE7,
-    ]),
-    Address::new([
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xE8,
-    ]),
-];
+/// Generate N sender addresses dynamically (0xE001..0xE0XX range).
+/// More senders = more parallelism (fewer nonce conflicts per sender).
+fn generate_senders(count: usize) -> Vec<Address> {
+    (0..count)
+        .map(|i| {
+            let mut bytes = [0u8; 20];
+            // Spread across 2 bytes for up to 65536 senders
+            bytes[18] = ((i + 1) >> 8) as u8;
+            bytes[19] = ((i + 1) & 0xFF) as u8;
+            // Use 0xE0 prefix to distinguish from other addresses
+            bytes[17] = 0xE0;
+            Address::new(bytes)
+        })
+        .collect()
+}
+
+/// Number of unique senders for parallel execution.
+/// More senders → fewer same-sender nonce conflicts → more parallelism.
+const NUM_SENDERS: usize = 64;
 
 /// Deployer address (sender of tx[0] = contract creation).
-const DEPLOYER: Address = SENDER_ADDRESSES[0];
+const DEPLOYER: Address = Address::new([
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x00, 0x01,
+]);
 
 /// Default gas limit per transaction (2M — sufficient for most contracts).
 const GAS_LIMIT: u64 = 2_000_000;
@@ -235,6 +221,9 @@ pub fn default_repeat_count(state_changing_fn_count: usize) -> u32 {
 /// `BuildError::NoStateChangingFunctions` if the contract has no callable
 /// state-changing functions.
 pub fn build(compile_result: &CompileResult, repeat_count: Option<u32>) -> Result<BuildResult, BuildError> {
+    // Generate sender addresses for parallel execution
+    let senders = generate_senders(NUM_SENDERS);
+
     // Parse ABI
     let abi: JsonAbi = serde_json::from_str(&compile_result.abi_json)
         .map_err(|e| BuildError::AbiParse(format!("{e}")))?;
@@ -289,7 +278,7 @@ pub fn build(compile_result: &CompileResult, repeat_count: Option<u32>) -> Resul
 
     for _round in 0..repeats {
         for func in &state_changing_fns {
-            let sender = SENDER_ADDRESSES[sender_idx % SENDER_ADDRESSES.len()];
+            let sender = senders[sender_idx % senders.len()];
             let nonce = nonce_map.entry(sender).or_insert(0);
 
             if let Some(calldata) = encode_function_call(func, sender) {
@@ -341,22 +330,22 @@ mod tests {
     #[test]
     fn test_compute_create_address() {
         // Known test vector: sender=0x0...E1, nonce=0
-        let addr = compute_create_address(SENDER_ADDRESSES[0], 0);
+        let addr = compute_create_address(generate_senders(NUM_SENDERS)[0], 0);
         // Just verify it's deterministic and non-zero
         assert_ne!(addr, Address::ZERO);
 
         // Same inputs → same output
-        let addr2 = compute_create_address(SENDER_ADDRESSES[0], 0);
+        let addr2 = compute_create_address(generate_senders(NUM_SENDERS)[0], 0);
         assert_eq!(addr, addr2);
 
         // Different nonce → different address
-        let addr3 = compute_create_address(SENDER_ADDRESSES[0], 1);
+        let addr3 = compute_create_address(generate_senders(NUM_SENDERS)[0], 1);
         assert_ne!(addr, addr3);
     }
 
     #[test]
     fn test_default_abi_word_address() {
-        let sender = SENDER_ADDRESSES[0];
+        let sender = generate_senders(NUM_SENDERS)[0];
         let word = default_abi_word("address", sender);
         // Last 20 bytes should be the sender address
         assert_eq!(&word[12..], sender.as_slice());
@@ -379,10 +368,10 @@ mod tests {
     #[test]
     fn test_sender_rotation() {
         // Verify senders are distinct
-        let mut addrs: Vec<Address> = SENDER_ADDRESSES.to_vec();
+        let mut addrs: Vec<Address> = generate_senders(NUM_SENDERS);
         addrs.sort();
         addrs.dedup();
-        assert_eq!(addrs.len(), 8, "all 8 senders should be unique");
+        assert_eq!(addrs.len(), NUM_SENDERS, "all senders should be unique");
     }
 
     #[test]
