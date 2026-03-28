@@ -22,6 +22,11 @@ fn has_solc() -> bool {
         .is_ok()
 }
 
+/// Check if monad-vibe-cli is available. If not, engine-dependent tests skip.
+fn has_engine() -> bool {
+    monbeat_server::engine::is_available()
+}
+
 /// Spawn a test server on a random available port, return the base URL.
 async fn spawn_test_server() -> String {
     let state = Arc::new(api::AppState {
@@ -84,8 +89,8 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 async fn test_counter_no_conflicts() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
@@ -153,8 +158,8 @@ contract Counter {
 
 #[tokio::test]
 async fn test_shared_storage_conflicts() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
@@ -235,8 +240,8 @@ contract SharedStorage {
 
 #[tokio::test]
 async fn test_compile_error_returns_400() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
@@ -418,8 +423,8 @@ async fn test_health_expanded_fields() {
 
 #[tokio::test]
 async fn test_simulate_with_repeat_count() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
@@ -476,8 +481,8 @@ contract Counter {
 
 #[tokio::test]
 async fn test_simulate_default_repeat_count_targets_300() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 

@@ -2,7 +2,7 @@
 name = "monbeat-server"
 version = "0.1.0"
 edition = "2021"
-description = "MonBeat simulation server — compiles Solidity, executes via monad-core parallel EVM, returns execution results + game events."
+description = "MonBeat simulation server — compiles Solidity, executes via C++ monad-vibe-cli, returns execution results + game events."
 
 [lib]
 name = "monbeat_server"
@@ -13,12 +13,8 @@ name = "monbeat-server"
 path = "src/main.rs"
 
 [dependencies]
-# Workspace crates
+# Workspace crates (types only — execution is via C++ subprocess)
 monad-types = { path = "../types" }
-monad-state = { path = "../state" }
-monad-scheduler = { path = "../scheduler" }
-monad-evm = { path = "../evm" }
-monad-mv-state = { path = "../mv-state" }
 
 # Alloy (ABI parsing + primitives)
 alloy-primitives = { workspace = true }

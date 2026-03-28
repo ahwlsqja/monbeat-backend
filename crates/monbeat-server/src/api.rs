@@ -17,7 +17,6 @@
 //! - `tracing::warn!` on compile errors (user-facing, not system failures)
 //! - `tracing::error!` on engine failures (system issue)
 
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -29,15 +28,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use monad_mv_state::{LocationKey, ReadSet, WriteSet};
-use monad_scheduler::execute_block_parallel;
-use monad_state::InMemoryState;
-use monad_types::{AccountInfo, ExecutionResult, Transaction};
-
-use alloy_primitives::U256;
-
 use crate::block_builder;
 use crate::compiler;
+use crate::engine;
 use crate::game_events::{ConflictInput, GameEvent, GameEventMapper, TxResult};
 
 // ---------------------------------------------------------------------------
@@ -326,7 +319,7 @@ pub struct SimulationResult {
 }
 
 /// Run the full Solidity simulation pipeline:
-/// compile → build block → parallel execute → conflict detect → map game events.
+/// compile → build block → execute via C++ monad-vibe-cli → map game events.
 ///
 /// Shared between the REST handler and the WebSocket handler.
 /// `repeat_count`: `None` auto-targets ~300 TXs; `Some(n)` repeats each function n times.
@@ -362,103 +355,85 @@ pub async fn run_simulation(source: &str, repeat_count: Option<u32>) -> Result<S
     let num_txs = build_result.transactions.len();
     tracing::info!(num_txs, "transaction block built");
 
-    // 3. Set up pre-funded in-memory state
-    let base_state = build_prefunded_state(&build_result.transactions);
+    // 3. Execute via C++ monad-vibe-cli subprocess
+    let engine_output = engine::execute(&build_result).await.map_err(|e| {
+        tracing::error!(error = %e, "engine execution failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorBody {
+                error: format!("Engine error: {e}"),
+            }),
+        )
+    })?;
 
-    // 4. Execute in parallel via Block-STM
-    let par_result = execute_block_parallel(
-        &build_result.transactions,
-        base_state,
-        &build_result.block_env,
-        4, // worker threads
-    );
+    // 4. Convert engine output → response types
+    let mut tx_result_outputs = Vec::with_capacity(engine_output.results.len());
+    let mut mapper_tx_results = Vec::with_capacity(engine_output.results.len());
 
-    // 5. Detect conflicts from ReadSet/WriteSet
-    let (conflict_details, conflict_inputs) =
-        detect_conflicts_from_results(&par_result.tx_results, &build_result.block_env.coinbase);
-
-    // 6. Build per-tx results for response + mapper input
-    let mut total_gas = 0u64;
-    let mut tx_result_outputs = Vec::with_capacity(par_result.tx_results.len());
-    let mut mapper_tx_results = Vec::with_capacity(par_result.tx_results.len());
-
-    for (exec_result, _write_set, _read_set) in &par_result.tx_results {
-        let (success, gas_used, output, error, logs_count) = match exec_result {
-            ExecutionResult::Success {
-                gas_used,
-                output,
-                logs,
-            } => {
-                total_gas += gas_used;
-                (
-                    true,
-                    *gas_used,
-                    format!("0x{}", hex::encode(output)),
-                    None,
-                    logs.len(),
-                )
-            }
-            ExecutionResult::Revert { gas_used, output } => {
-                total_gas += gas_used;
-                (
-                    false,
-                    *gas_used,
-                    format!("0x{}", hex::encode(output)),
-                    Some("revert".to_string()),
-                    0,
-                )
-            }
-            ExecutionResult::Halt { gas_used, reason } => {
-                total_gas += gas_used;
-                (false, *gas_used, "0x".to_string(), Some(reason.clone()), 0)
-            }
-        };
-
+    for r in &engine_output.results {
         tx_result_outputs.push(TxResultOutput {
-            success,
-            gas_used,
-            output,
-            error,
-            logs_count,
+            success: r.success,
+            gas_used: r.gas_used,
+            output: r.output.clone(),
+            error: r.error.clone(),
+            logs_count: r.logs_count.unwrap_or(0),
         });
-        mapper_tx_results.push(TxResult { success, gas_used });
+        mapper_tx_results.push(TxResult {
+            success: r.success,
+            gas_used: r.gas_used,
+        });
     }
 
-    // 7. Map to game events
+    // 5. Convert conflict details for game event mapper
+    let conflict_inputs: Vec<ConflictInput> = engine_output
+        .conflict_details
+        .conflicts
+        .iter()
+        .map(|c| ConflictInput {
+            tx_a: c.tx_a,
+            tx_b: c.tx_b,
+            slot_byte: 0, // C++ engine doesn't provide slot byte detail
+        })
+        .collect();
+
+    let conflict_outputs: Vec<ConflictPairOutput> = engine_output
+        .conflict_details
+        .conflicts
+        .iter()
+        .map(|c| ConflictPairOutput {
+            tx_a: c.tx_a,
+            tx_b: c.tx_b,
+            location_type: c.location_type.clone().unwrap_or_else(|| "Unknown".to_string()),
+            conflict_type: c.conflict_type.clone().unwrap_or_else(|| "unknown".to_string()),
+        })
+        .collect();
+
+    // 6. Map to game events
     let game_events = GameEventMapper::map_to_events(
         &mapper_tx_results,
-        &par_result.incarnations,
+        &engine_output.incarnations,
         &conflict_inputs,
     );
 
-    let num_conflicts = par_result
-        .incarnations
-        .iter()
-        .filter(|&&inc| inc > 0)
-        .count();
-    let num_re_executions: usize = par_result
-        .incarnations
-        .iter()
-        .map(|&inc| if inc > 0 { inc as usize } else { 0 })
-        .sum();
-
     tracing::info!(
         events = game_events.len(),
-        conflicts = conflict_details.conflicts.len(),
-        re_executions = num_re_executions,
-        "simulation complete"
+        conflicts = engine_output.stats.num_conflicts,
+        re_executions = engine_output.stats.num_re_executions,
+        "simulation complete (C++ engine)"
     );
 
     let response = SimulateResponse {
         results: tx_result_outputs,
-        incarnations: par_result.incarnations,
+        incarnations: engine_output.incarnations,
         stats: ExecutionStats {
-            total_gas,
+            total_gas: engine_output.stats.total_gas,
             num_transactions: num_txs,
-            num_conflicts,
-            num_re_executions,
+            num_conflicts: engine_output.stats.num_conflicts as usize,
+            num_re_executions: engine_output.stats.num_re_executions as usize,
         },
-        conflict_details,
+        conflict_details: ConflictDetailsOutput {
+            conflicts: conflict_outputs,
+        },
         game_events: game_events.clone(),
     };
 
@@ -472,125 +447,4 @@ pub async fn run_simulation(source: &str, repeat_count: Option<u32>) -> Result<S
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Build an in-memory state provider with all unique senders pre-funded.
-///
-/// Each sender gets 1000 ETH (same as CLI) so contract deployment and
-/// function calls don't fail due to insufficient balance.
-fn build_prefunded_state(transactions: &[Transaction]) -> Arc<dyn monad_state::StateProvider> {
-    let mut state = InMemoryState::new();
-    let prefund = U256::from(1_000_000_000_000_000_000_000u128); // 1000 ETH
-
-    // Also pre-fund the coinbase address (block_env.coinbase = 0xFF) to
-    // avoid account-not-found issues during gas fee processing.
-    let coinbase = alloy_primitives::Address::with_last_byte(0xFF);
-    state.insert_account(coinbase, AccountInfo::new(U256::ZERO, 0));
-
-    for tx in transactions {
-        state.insert_account(tx.sender, AccountInfo::new(prefund, 0));
-    }
-
-    Arc::new(state)
-}
-
-/// Detect conflicts from parallel execution results.
-///
-/// Returns both the serializable conflict details (for the JSON response)
-/// and the ConflictInput list (for the game event mapper).
-///
-/// Filters out coinbase-address conflicts (EVM-inherent, not actionable).
-fn detect_conflicts_from_results(
-    tx_results: &[(ExecutionResult, WriteSet, ReadSet)],
-    coinbase: &alloy_primitives::Address,
-) -> (ConflictDetailsOutput, Vec<ConflictInput>) {
-    let mut conflict_outputs = Vec::new();
-    let mut conflict_inputs = Vec::new();
-    let mut seen_pairs: HashSet<(usize, usize)> = HashSet::new();
-
-    for tx_a in 0..tx_results.len() {
-        for tx_b in (tx_a + 1)..tx_results.len() {
-            let (_, write_set_a, read_set_a) = &tx_results[tx_a];
-            let (_, write_set_b, read_set_b) = &tx_results[tx_b];
-
-            let write_keys_a: HashSet<LocationKey> =
-                write_set_a.iter().map(|(k, _)| k.clone()).collect();
-            let write_keys_b: HashSet<LocationKey> =
-                write_set_b.iter().map(|(k, _)| k.clone()).collect();
-            let read_keys_a: HashSet<LocationKey> =
-                read_set_a.iter().map(|(k, _)| k.clone()).collect();
-            let read_keys_b: HashSet<LocationKey> =
-                read_set_b.iter().map(|(k, _)| k.clone()).collect();
-
-            // Check all conflict types
-            let mut pair_conflicts: Vec<(LocationKey, &str)> = Vec::new();
-
-            // Write-write
-            for key in write_keys_a.intersection(&write_keys_b) {
-                pair_conflicts.push((key.clone(), "write-write"));
-            }
-            // Read-write: a reads, b writes
-            for key in read_keys_a.intersection(&write_keys_b) {
-                pair_conflicts.push((key.clone(), "read-write"));
-            }
-            // Read-write: a writes, b reads
-            for key in write_keys_a.intersection(&read_keys_b) {
-                pair_conflicts.push((key.clone(), "read-write"));
-            }
-
-            // Filter coinbase conflicts and emit
-            for (key, conflict_type) in pair_conflicts {
-                if is_coinbase_location(&key, coinbase) {
-                    continue;
-                }
-
-                let (location_type, slot_byte) = location_info(&key);
-
-                conflict_outputs.push(ConflictPairOutput {
-                    tx_a,
-                    tx_b,
-                    location_type,
-                    conflict_type: conflict_type.to_string(),
-                });
-
-                // Dedup for game event mapper (one conflict per pair)
-                let pair_key = (tx_a, tx_b);
-                if seen_pairs.insert(pair_key) {
-                    conflict_inputs.push(ConflictInput {
-                        tx_a,
-                        tx_b,
-                        slot_byte,
-                    });
-                }
-            }
-        }
-    }
-
-    (
-        ConflictDetailsOutput {
-            conflicts: conflict_outputs,
-        },
-        conflict_inputs,
-    )
-}
-
-/// Check if a location key involves the coinbase address.
-fn is_coinbase_location(key: &LocationKey, coinbase: &alloy_primitives::Address) -> bool {
-    match key {
-        LocationKey::Balance(addr) | LocationKey::Nonce(addr) | LocationKey::CodeHash(addr) => {
-            addr == coinbase
-        }
-        LocationKey::Storage(addr, _) => addr == coinbase,
-    }
-}
-
-/// Extract location type string and low slot byte from a LocationKey.
-fn location_info(key: &LocationKey) -> (String, u8) {
-    match key {
-        LocationKey::Storage(_, slot) => {
-            let slot_bytes: [u8; 32] = slot.to_be_bytes();
-            ("Storage".to_string(), slot_bytes[31])
-        }
-        LocationKey::Balance(_) => ("Balance".to_string(), 0),
-        LocationKey::Nonce(_) => ("Nonce".to_string(), 0),
-        LocationKey::CodeHash(_) => ("CodeHash".to_string(), 0),
-    }
-}
+// No Rust-engine-specific helpers needed — execution delegated to C++ monad-vibe-cli via engine.rs

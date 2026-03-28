@@ -11,5 +11,6 @@
 pub mod api;
 pub mod block_builder;
 pub mod compiler;
+pub mod engine;
 pub mod game_events;
 pub mod ws;

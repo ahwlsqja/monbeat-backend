@@ -35,6 +35,11 @@ fn has_solc() -> bool {
         .is_ok()
 }
 
+/// Check if monad-vibe-cli is available.
+fn has_engine() -> bool {
+    monbeat_server::engine::is_available()
+}
+
 /// Spawn a test server on a random port. Returns the HTTP base URL.
 async fn spawn_test_server() -> String {
     let state = Arc::new(api::AppState {
@@ -201,8 +206,8 @@ async fn simulate_and_collect_with_repeat(
 
 #[tokio::test]
 async fn test_ws_simulate_binary_frames() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
@@ -244,8 +249,8 @@ async fn test_ws_simulate_binary_frames() {
 
 #[tokio::test]
 async fn test_ws_binary_decode_roundtrip() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
@@ -307,8 +312,8 @@ async fn test_ws_binary_decode_roundtrip() {
 
 #[tokio::test]
 async fn test_ws_pacing() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
@@ -420,8 +425,8 @@ async fn test_ws_heartbeat_ping() {
 
 #[tokio::test]
 async fn test_ws_concurrent_limit() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
@@ -511,8 +516,8 @@ async fn test_ws_concurrent_limit() {
 
 #[tokio::test]
 async fn test_ws_conflict_events() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
@@ -571,8 +576,8 @@ async fn test_ws_conflict_events() {
 
 #[tokio::test]
 async fn test_ws_simulate_with_repeat_count() {
-    if !has_solc() {
-        eprintln!("SKIP: solc not installed");
+    if !has_solc() || !has_engine() {
+        eprintln!("SKIP: solc or monad-vibe-cli not installed");
         return;
     }
 
