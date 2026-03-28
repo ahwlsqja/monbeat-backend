@@ -121,9 +121,11 @@ contract Counter {
         .await
         .expect("simulate request failed");
 
-    assert_eq!(resp.status(), 200, "expected 200 OK");
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap();
+    assert_eq!(status, 200, "expected 200 OK, body: {body_text}");
 
-    let body: serde_json::Value = resp.json().await.unwrap();
+    let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
 
     // Verify response structure
     assert!(body["results"].is_array(), "results should be an array");

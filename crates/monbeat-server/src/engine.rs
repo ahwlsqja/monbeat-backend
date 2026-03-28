@@ -136,39 +136,56 @@ pub enum EngineError {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Check if monad-vibe-cli binary is available on PATH.
+/// Check if monad-vibe-cli is available (native binary or Docker image).
 pub fn is_available() -> bool {
-    which_binary().is_some()
+    which_binary().is_some() || has_docker_image()
 }
 
 /// Execute transactions via monad-vibe-cli subprocess.
 ///
+/// Tries native binary first, falls back to Docker if not available.
 /// Converts `BuildResult` to CLI JSON input, spawns the process, and parses
 /// the JSON output. Returns `EngineOutput` for further mapping.
 pub async fn execute(build_result: &BuildResult) -> Result<EngineOutput, EngineError> {
-    let binary = which_binary()
-        .ok_or_else(|| EngineError::BinaryNotFound(binary_name().to_string()))?;
-
     // Convert BuildResult → CLI JSON input
     let cli_input = build_cli_input(build_result);
     let input_json = serde_json::to_string(&cli_input)
         .map_err(|e| EngineError::InputSerialize(e.to_string()))?;
 
-    tracing::info!(
-        binary = %binary,
-        num_txs = build_result.transactions.len(),
-        input_bytes = input_json.len(),
-        "spawning monad-vibe-cli"
-    );
-
     let start = std::time::Instant::now();
 
-    // Spawn subprocess
-    let mut child = Command::new(&binary)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    // Choose execution mode: native binary or Docker
+    let (mode, mut child) = if let Some(binary) = which_binary() {
+        tracing::info!(
+            binary = %binary,
+            num_txs = build_result.transactions.len(),
+            "spawning monad-vibe-cli (native)"
+        );
+        let child = Command::new(&binary)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        ("native", child)
+    } else if has_docker_image() {
+        let image = docker_image_name();
+        tracing::info!(
+            image = %image,
+            num_txs = build_result.transactions.len(),
+            "spawning monad-vibe-cli (docker)"
+        );
+        let child = Command::new("docker")
+            .args(["run", "--rm", "-i", &image, "monad-vibe-cli"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        ("docker", child)
+    } else {
+        return Err(EngineError::BinaryNotFound(
+            "monad-vibe-cli not found (checked PATH and Docker)".to_string(),
+        ));
+    };
 
     // Write input to stdin
     {
@@ -183,6 +200,7 @@ pub async fn execute(build_result: &BuildResult) -> Result<EngineOutput, EngineE
     let elapsed = start.elapsed();
 
     tracing::info!(
+        mode = mode,
         exit_code = output.status.code().unwrap_or(-1),
         elapsed_ms = elapsed.as_millis() as u64,
         stdout_bytes = output.stdout.len(),
@@ -222,6 +240,23 @@ pub async fn execute(build_result: &BuildResult) -> Result<EngineOutput, EngineE
 
 fn binary_name() -> String {
     std::env::var("MONAD_VIBE_CLI").unwrap_or_else(|_| DEFAULT_BINARY.to_string())
+}
+
+fn docker_image_name() -> String {
+    std::env::var("MONAD_VIBE_CLI_IMAGE").unwrap_or_else(|_| "monad-vibe-cli:latest".to_string())
+}
+
+fn has_docker_image() -> bool {
+    let image = docker_image_name();
+    if let Ok(output) = std::process::Command::new("docker")
+        .args(["image", "inspect", &image])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+    {
+        return output.status.success();
+    }
+    false
 }
 
 fn which_binary() -> Option<String> {
