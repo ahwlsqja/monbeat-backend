@@ -46,10 +46,23 @@ async fn main() {
             {
                 Ok(pool) => {
                     tracing::info!("PostgreSQL connected");
-                    // Run migrations if the table doesn't exist
-                    let _ = sqlx::query(include_str!("../migrations/001_create_simulations.sql"))
-                        .execute(&pool)
-                        .await;
+                    // Run migrations — execute each statement separately
+                    // (sqlx::query doesn't support multi-statement execution)
+                    let migration_stmts = [
+                        "CREATE TABLE IF NOT EXISTS simulations (
+                            id          TEXT PRIMARY KEY,
+                            source_hash TEXT NOT NULL,
+                            response    JSONB NOT NULL,
+                            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )",
+                        "CREATE INDEX IF NOT EXISTS idx_simulations_created_at ON simulations (created_at DESC)",
+                        "CREATE INDEX IF NOT EXISTS idx_simulations_source_hash ON simulations (source_hash)",
+                    ];
+                    for stmt in &migration_stmts {
+                        if let Err(e) = sqlx::query(stmt).execute(&pool).await {
+                            tracing::warn!(error = %e, "migration statement failed");
+                        }
+                    }
                     Some(pool)
                 }
                 Err(e) => {
