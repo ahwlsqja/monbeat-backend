@@ -37,5 +37,12 @@ coverage/
 .cache/
 tmp/
 
+# E2E proxy (delegates to monbeat-frontend tests)
+playwright.config.ts
+package.json
+package-lock.json
+test-results/
+playwright-report/
+
 # ── GSD baseline (auto-generated) ──
 .gsd
