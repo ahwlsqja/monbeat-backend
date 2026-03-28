@@ -293,11 +293,14 @@ impl GameEventMapper {
             }
 
             // Conflict events associated with this tx (emitted with slight delay)
+            // Limit: at most one conflict event per tx to prevent event explosion
+            // (C++ engine reports all N*(N-1)/2 conflict pairs — 300 TXs → 45,000+ pairs)
             if let Some(conflict_list) = tx_conflicts.get(&i) {
+                let mut emitted_for_this_tx = false;
                 for c in conflict_list {
                     let pair_key = (c.tx_a.min(c.tx_b), c.tx_a.max(c.tx_b));
-                    if emitted_conflicts.insert(pair_key) {
-                        // Only emit once per unique pair
+                    if emitted_conflicts.insert(pair_key) && !emitted_for_this_tx {
+                        emitted_for_this_tx = true;
                         let conflict_tx = tx_index;
                         events.push(GameEvent {
                             event_type: GameEventType::Conflict,
