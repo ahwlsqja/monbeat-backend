@@ -389,24 +389,26 @@ pub async fn run_simulation(source: &str, repeat_count: Option<u32>) -> Result<S
     }
 
     // 5. Filter coinbase-only conflicts (EVM-inherent, not user-actionable)
-    // All TXs read/write coinbase for gas fees — this inflates conflict count.
+    // All TXs read/write coinbase Balance/Nonce for gas fees — filter those.
     let coinbase_addr = format!("{:#x}", build_result.block_env.coinbase);
     
-    // Determine which TX pairs have non-coinbase conflicts using per_tx R/W sets
+    // A conflict pair is "coinbase-only" if both TXs only touch the coinbase address
+    // in their R/W sets (no other addresses involved in conflicts).
     let filtered_conflicts: Vec<&engine::EngineConflict> = engine_output
         .conflict_details
         .conflicts
         .iter()
         .filter(|c| {
-            // Keep conflict if either TX has non-coinbase storage R/W
-            let has_storage = |tx_idx: usize| -> bool {
-                engine_output.conflict_details.per_tx.get(tx_idx).map_or(false, |pt| {
+            // Check if either TX has R/W on non-coinbase addresses
+            let has_non_coinbase_rw = |tx_idx: usize| -> bool {
+                engine_output.conflict_details.per_tx.get(tx_idx).map_or(true, |pt| {
                     pt.reads.iter().chain(pt.writes.iter()).any(|rw| {
-                        rw.address != coinbase_addr && rw.location_type == "StorageSlot"
+                        rw.address != coinbase_addr
                     })
                 })
             };
-            has_storage(c.tx_a) || has_storage(c.tx_b)
+            // Keep if per_tx data is missing (conservative) or if non-coinbase addresses exist
+            has_non_coinbase_rw(c.tx_a) && has_non_coinbase_rw(c.tx_b)
         })
         .collect();
 
